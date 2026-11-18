@@ -1,0 +1,452 @@
+
+#include "bsp.h"
+#include "main.h"
+
+
+_SYS_PAR g_SysPar;
+_MOBILE_FLASH g_MobileInFlash;
+_SERVER_FLASH g_ServerInfo;
+bool g_GetMyMobileOKFlag;
+uint8_t g_tmpBuf[1600];
+
+UpdateFile 	NormalUpdateFileSize;  //正常文件大小
+UpdateFile 	DiffUpdateFileSize;			//增量升级主程序文件大小
+UPDATAPROGRAM g_UpdateCodePageTotal;
+uint8_t 	g_UpdateCodeTypeErrorFlag;		//程序程序类型错误标记
+
+uint8_t	g_VersionHex[2];				//16进制版本号
+uint8_t	g_VersionAscii[4];				//ASCII版本号
+_VERSION_FLASH g_VersioninFlash;
+
+/**
+ * @brief	WriteSysPar
+ *
+ * @param	存系统参数
+ *
+ * @return  void
+ */
+void WriteSysPar(void)
+{
+	W25qxx_EraseSector(0);
+	W25qxx_WriteBytes((uint8_t*)&g_SysPar,FLASH_SYSPARAMETER_START,sizeof(g_SysPar));
+}
+
+/**
+ * @brief	读系统参数
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void ReadSysPar(void)
+{	
+	uint8_t flag = 0;
+	
+	W25qxx_ReadBytes((uint8_t*)&g_SysPar,FLASH_SYSPARAMETER_START,sizeof(g_SysPar));
+	if(CheckCRC16((uint8_t*)&g_SysPar,sizeof(g_SysPar)) == false)
+	{
+		g_SysPar.closelockdelay = 1;
+		g_SysPar.locktype = 1;
+		g_SysPar.keeponlinetime = 3;
+		g_SysPar.updatestatustime[0] = 0x23;
+		g_SysPar.updatestatustime[1] = 0x00;
+		g_SysPar.updatestatuscnt = 1;
+		g_SysPar.simmode = SIM2ONLY;
+		memset(g_SysPar.res,0,sizeof(g_SysPar.res));
+		flag = 1;
+	}
+	g_SelSIMFlag = g_SysPar.simmode;
+	
+	g_SelSIMFlag = SIM1ONLY;
+	
+//	
+//	if(flag)
+//	{
+//		flag = 0;
+//		g_SysPar.crc16 = CRC16((uint8_t*)&g_SysPar,sizeof(g_SysPar)-2);
+//		WriteSysPar();
+//	}
+	UpdateAlarmPar();	
+	InitFlashPar();
+}
+
+/**
+ * @brief	存DTU参数
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void WriteDTUSysPar(void)
+{
+	W25qxx_EraseSector(1);
+	W25qxx_WriteBytes((uint8_t*)&g_ServerInfo,FLASH_IPPORT_START,sizeof(g_ServerInfo));
+	W25qxx_WriteBytes((uint8_t*)&g_MobileInFlash,FLASH_MOBILE_START,sizeof(g_MobileInFlash));
+}
+
+/**
+ * @brief	读DTU参数
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void ReadDTUSysPar(void)
+{
+	uint8_t err = 0,i;	
+	uint8_t cmpbuffer[2][4];
+    
+    memset(cmpbuffer[0],0,sizeof(cmpbuffer[0]));
+    memset(cmpbuffer[1],0xff,sizeof(cmpbuffer[1]));
+	
+	W25qxx_ReadBytes((uint8_t*)&g_MobileInFlash,FLASH_MOBILE_START,sizeof(g_MobileInFlash));
+	W25qxx_ReadBytes((uint8_t*)&g_ServerInfo,FLASH_IPPORT_START,sizeof(g_ServerInfo));
+	if(g_MobileInFlash.Crc16 != CRC16((uint8_t*)&g_MobileInFlash,sizeof(g_MobileInFlash)-2))
+	{
+		memset(g_MobileInFlash.mobileno,0,sizeof(g_MobileInFlash.mobileno));    //agj add
+        g_MobileInFlash.Crc16 = CRC16((uint8_t*)&g_MobileInFlash,sizeof(g_MobileInFlash)-2);
+        g_GetMyMobileOKFlag = false;        //获取本机号标识
+		err = 1;
+	}
+	
+	if( g_ServerInfo.Crc16 != CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2))
+	{
+        memset(g_ServerInfo.serveripaddr,0,sizeof(g_ServerInfo.serveripaddr));
+		memset(g_ServerInfo.serverportaddr,0,sizeof(g_ServerInfo.serverportaddr));
+		g_ServerInfo.Crc16 = CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2);
+		err = 1;
+	}
+	for(i=0;i<3;i++)
+    {
+        if( memcmp(g_ServerInfo.serveripaddr[i],cmpbuffer[0],sizeof(g_ServerInfo.serveripaddr[i])) == 0 || 
+            memcmp(g_ServerInfo.serveripaddr[i],cmpbuffer[1],sizeof(g_ServerInfo.serveripaddr[i])) == 0 ||
+            g_ServerInfo.serverportaddr[i] == 0 || g_ServerInfo.serverportaddr[i] == 0xff)
+        {
+            memcpy(g_ServerInfo.serveripaddr[i],g_IPBuffer[i],sizeof(g_ServerInfo.serveripaddr[i]));
+            g_ServerInfo.serverportaddr[i] = g_PortNo[i];
+			err = 1;
+        }
+    }
+	if(err == 1)
+	{
+		g_ServerInfo.Crc16 = CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2);
+		WriteDTUSysPar();
+	}
+}
+
+/**
+ * @brief	存升级变量
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void WriteNormalFileSizeToFlash(void)
+{
+	NormalUpdateFileSize.Crc16 = CRC16((uint8_t*)&NormalUpdateFileSize, sizeof( NormalUpdateFileSize)-2);
+	W25qxx_EraseSector(2);
+	W25qxx_WriteBytes((uint8_t*)&NormalUpdateFileSize,FLASH_UPDATA_START,sizeof(NormalUpdateFileSize));
+}
+
+/******************************************************************
+函数名称: Bool ReadNormalFileSizeToFlash(void)
+功能描述: 从Flash读正常升级文件大小的函数
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：
+******************************************************************/
+bool ReadNormalFileSizeFromFlash(void)
+{
+	W25qxx_ReadBytes((uint8_t*)&NormalUpdateFileSize,FLASH_UPDATA_START,sizeof(NormalUpdateFileSize));
+	
+	if(NormalUpdateFileSize.Crc16 != CRC16((uint8_t*)&NormalUpdateFileSize,sizeof(NormalUpdateFileSize)-2))
+	{
+		NormalUpdateFileSize.FileSize = 0;
+        WriteNormalFileSizeToFlash();
+        return false;
+	}
+    return true;
+}
+
+
+/******************************************************************
+函数名称: Bool WriteDiffFileSizeToFlash(void)
+功能描述:  写入增量升级文件大小
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void WriteDiffFileSizeToFlash(void)
+{
+	DiffUpdateFileSize.Crc16 = CRC16((uint8_t*)&DiffUpdateFileSize, sizeof( DiffUpdateFileSize)-2);
+	W25qxx_ReadBytes((uint8_t*)&NormalUpdateFileSize,FLASH_UPDATA_START,sizeof(NormalUpdateFileSize));
+	W25qxx_EraseSector(2);
+	W25qxx_WriteBytes((uint8_t*)&NormalUpdateFileSize,FLASH_UPDATA_START,sizeof(NormalUpdateFileSize));
+	W25qxx_WriteBytes((uint8_t*)&DiffUpdateFileSize,FLASH_UPDATA_START+sizeof(NormalUpdateFileSize),sizeof(DiffUpdateFileSize));
+}
+
+/******************************************************************
+函数名称: Bool ReadDiffFileSizeFromFlash(void)
+功能描述: 从Flash读增量升级文件大小的函数
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+bool ReadDiffFileSizeFromFlash(void)
+{
+    
+	W25qxx_ReadBytes((uint8_t*)&DiffUpdateFileSize,FLASH_UPDATA_START+sizeof(NormalUpdateFileSize),sizeof(DiffUpdateFileSize));
+
+	if(DiffUpdateFileSize.Crc16 != CRC16((uint8_t*)&DiffUpdateFileSize,sizeof(DiffUpdateFileSize)-2))
+	{
+		DiffUpdateFileSize.FileSize = 0;
+        WriteDiffFileSizeToFlash();
+        return false;
+	}
+    return true;
+}
+
+/******************************************************************
+函数名称: Bool ChangeVersionFormat(void)
+功能描述: 转换版本号格式
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ChangeVersionFormat(void)
+{
+	uint8_t i,flag;
+	int8_t temp[7];
+	
+	memset(temp,0,7);
+	memset(g_VersionAscii,0,sizeof(g_VersionAscii));
+	memset(g_VersionHex,0,sizeof(g_VersionHex));
+	
+	memcpy(temp,g_Version,sizeof(g_Version));
+	
+	W25qxx_ReadBytes((uint8_t*)&g_VersioninFlash,FLASH_VERSION_START,sizeof(g_VersioninFlash));	//读boot版本号
+	if(g_VersioninFlash.bootversion[0] == 0xFF && g_VersioninFlash.bootversion[1] == 0xFF && g_VersioninFlash.bootversion[2] == 0xFF && g_VersioninFlash.bootversion[3] == 0xFF)
+	{
+		memset(g_VersioninFlash.bootversion,0x30,4);
+		flag = 1;
+	}
+	
+	for(i=0;i<7;i++)    
+	{
+		if(temp[i] == '.')
+		{
+			if(i == 3)
+			{
+				g_VersionAscii[0] = temp[1];
+				g_VersionAscii[1] = temp[2];
+			}
+			else if(i == 2)
+			{
+				g_VersionAscii[0] = 0x30;
+				g_VersionAscii[1] = temp[1];
+			}
+			g_VersionAscii[2] = temp[i+1];
+			if(temp[i+2] == 0x00)
+				g_VersionAscii[3] = 0x30;
+			else
+				g_VersionAscii[3] = temp[i+2];
+		}
+	}
+	g_VersionHex[0] = Asc2Hex(g_VersionAscii[0])*10+Asc2Hex(g_VersionAscii[1]);
+	g_VersionHex[1] = Asc2Hex(g_VersionAscii[2])*10+Asc2Hex(g_VersionAscii[3]);
+	if(memcmp(g_VersionAscii,g_VersioninFlash.userversion,4) != 0)
+	{
+		memcpy(g_VersioninFlash.userversion,g_VersionAscii,4);
+		flag = 1;
+	}
+	if(flag == 1)
+	{
+		g_VersioninFlash.Crc16 = CRC16((uint8_t*)&g_VersioninFlash,sizeof(g_VersioninFlash)-2);
+		W25qxx_EraseSector(FLASH_VERSION_START/w25qxx.SectorSize);
+		W25qxx_WriteBytes((uint8_t*)&g_VersioninFlash,FLASH_VERSION_START,sizeof(g_VersioninFlash));
+	}
+}
+
+/**
+ * @brief	存本机号
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void WriteMobileNoToFLASH(void)
+{
+	g_MobileInFlash.Crc16 = CRC16((uint8_t*)&g_MobileInFlash, sizeof(g_MobileInFlash)-2);	
+	WriteDTUSysPar();
+}
+
+/**
+ * @brief	读取本机号
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+bool ReadMobileNoFromFLASH(void)
+{
+    uint8_t cmpbuf[5];
+
+	memset(cmpbuf,0,sizeof(cmpbuf));
+   
+    W25qxx_ReadBytes((uint8_t*)&g_MobileInFlash,FLASH_MOBILE_START,sizeof(g_MobileInFlash));
+	if(g_MobileInFlash.Crc16 != CRC16((uint8_t*)&g_MobileInFlash,sizeof(g_MobileInFlash)-2))
+	{
+		memset(g_MobileInFlash.mobileno,0,sizeof(g_MobileInFlash.mobileno));   
+        g_MobileInFlash.Crc16 = CRC16((uint8_t*)&g_MobileInFlash,sizeof(g_MobileInFlash)-2);
+		WriteDTUSysPar();
+        g_GetMyMobileOKFlag = false;        //获取本机号标识
+        return false;
+	}
+    else
+    {
+        if(CheckNumIsBCD(g_MobileInFlash.mobileno[4],5) == true && memcmp(g_MobileInFlash.mobileno[4],cmpbuf,5)!=0)
+            g_GetMyMobileOKFlag = true;
+    }
+    return true;
+}
+
+/******************************************************************
+函数名称: void CmpIPAndPort(void)
+功能描述: 判断IP和端口号若为0或者FF，替换为默认的值
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：
+******************************************************************/
+void CmpIPAndPort(void)
+{
+    uint8_t cmpbuffer[2][4];
+    uint8_t i;
+    
+    memset(cmpbuffer[0],0,sizeof(cmpbuffer[0]));
+    memset(cmpbuffer[1],0xff,sizeof(cmpbuffer[1]));
+    for(i=0;i<3;i++)
+    {
+        if( memcmp(g_ServerInfo.serveripaddr[i],cmpbuffer[0],sizeof(g_ServerInfo.serveripaddr[i])) == 0 || 
+            memcmp(g_ServerInfo.serveripaddr[i],cmpbuffer[1],sizeof(g_ServerInfo.serveripaddr[i])) == 0 ||
+            g_ServerInfo.serverportaddr[i] == 0 || g_ServerInfo.serverportaddr[i] == 0xff)
+        {
+            memcpy(g_ServerInfo.serveripaddr[i],g_IPBuffer[i],sizeof(g_ServerInfo.serveripaddr[i]));
+            g_ServerInfo.serverportaddr[i] = g_PortNo[i];
+        }
+    }
+}
+
+/**
+ * @brief	存服务器信息
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void WriteServerInfoPar(void)
+{
+	g_ServerInfo.Crc16 = CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2);
+	WriteDTUSysPar();
+}
+
+/**
+ * @brief	读取服务器信息
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+bool ReadServerInfoPar(void)    
+{    
+	W25qxx_ReadBytes((uint8_t*)&g_ServerInfo,FLASH_IPPORT_START,sizeof(g_ServerInfo));
+	if( g_ServerInfo.Crc16 != CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2))
+	{
+        memset(g_ServerInfo.serveripaddr,0,sizeof(g_ServerInfo.serveripaddr));
+		memset(g_ServerInfo.serverportaddr,0,sizeof(g_ServerInfo.serverportaddr));
+		g_ServerInfo.Crc16 = CRC16((uint8_t*)&g_ServerInfo,sizeof(g_ServerInfo)-2);
+		WriteDTUSysPar();
+        return false;
+	}
+    return true;
+}
+
+
+/******************************************************************
+函数名称: Bool WritePowerFlagToFlash(void)
+功能描述: 写Flash的电源标识
+参数输入: 无
+参数输出: 无
+返 回 值: 无
+其    他: agj
+******************************************************************/
+void WritePowerCtlFlagToFlash(uint8_t flag)
+{
+    uint32_t addr;
+	uint8_t buffer[6];
+	
+	W25qxx_ReadBytes(buffer,FLASH_POWERCTL_START+1,6);
+	
+	addr = FLASH_POWERCTL_START/4096;
+	W25qxx_EraseSector(addr);
+	
+	W25qxx_WriteBytes(&flag,FLASH_POWERCTL_START,1);
+	W25qxx_WriteBytes(buffer,FLASH_POWERCTL_START+1,6);
+}
+
+void WritePowerCtlNoTolash(uint8_t *number)
+{
+    uint32_t addr;
+	
+	W25qxx_ReadBytes(&g_ResetPowerFlag,FLASH_POWERCTL_START,1);
+	
+	addr = FLASH_POWERCTL_START/4096;
+	W25qxx_EraseSector(addr);
+	
+	if(CheckNumIsBCD(number,5) == false)
+        memset(number,0xff,6);
+	
+	W25qxx_WriteBytes(&g_ResetPowerFlag,FLASH_POWERCTL_START,1);
+	W25qxx_WriteBytes(number,FLASH_POWERCTL_START+1,6);
+}
+
+/******************************************************************
+函数名称: Bool ReadPowerFlagFromFlash(void)
+功能描述: 读Flash的电源标识
+参数输入: 无
+参数输出: 无
+返 回 值: 无
+其    他: agj
+******************************************************************/
+void ReadPowerCtlFlagFromFlash(void)
+{
+    g_ResetPowerFlag = 0;
+	W25qxx_ReadBytes(&g_ResetPowerFlag,FLASH_POWERCTL_START,1);
+	
+    if(g_ResetPowerFlag == 2)
+    {
+//		AutoPowerOffDTU();
+        g_AskPowerControlFlag = 1; 
+    }
+}
+
+bool ReadPowerCtlNoFromFlash(uint8_t *number)
+{
+    g_ResetPowerFlag = 0;
+	W25qxx_ReadBytes(number,FLASH_POWERCTL_START+1,6);
+	
+	if(CheckNumIsBCD(number,5) == true)
+        return true;
+    else
+    {
+        memset(number,0xff,6);
+        return false;
+    }
+}
+

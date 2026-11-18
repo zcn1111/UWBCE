@@ -1,0 +1,47 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __APP_TOOL_H
+#define __APP_TOOL_H
+
+#include <stdint.h>
+
+/* 以下为主板和客服工具通信协议 */
+//包头 --- 通用和专用
+//通用包头
+#define   RECEIVETAG_ALL                     0xC1        //通用协议的接收包头
+#define   SENDTAG_ALL                        0xC2        //通用协议的发送包头
+
+#define   RECEIVETAG_SIM                     0xD9        //
+#define   SENDTAG_SIM                        0xDA        //
+
+//类型 --- 通用和专用
+//通用协议
+#define   SET_MY_NUMBER_TYPE                 0x03       //设置本机号
+#define   GET_MY_NUMBER_TYPE                 0x04       //索要本机号
+#define   SET_IP_TYPE                        0x05       //设置IP
+#define   GET_IP_TYPE                        0x06       //索要IP
+#define   GET_PARAM_INFOR_TYPE               0x07       //索要参数信息
+
+//
+#define   GET_DOOR_STATUS_TYPE              0x80        //索要门禁状态
+#define   LOCAL_OPEN_LOCK_TYPE              0x82        //开门
+#define   GET_MJ_SYS_PAR	                0x83        //索要门禁参数
+#define   SET_LOCK_TYPE		                0x84        //索要门禁参数
+#define   GET_LOCK_PAR		                0x85        //索要门禁参数
+#define   CLR_STATUS_RECORD	                0x86        //索要门禁参数
+
+#define   SET_SIM_MODE		                0x02        //
+#define   GET_SIM_MODE		                0x03        //
+#define   GET_SIM_ICCID		                0x04        //
+
+
+
+extern uint8_t g_CheckTool;
+extern uint8_t g_ToolCodeTypeErrorFlag;		//程序程序类型错误标记
+extern uint8_t g_ToolOpenDoorFlag;
+extern uint8_t g_ToolGetICCIDFlag;
+extern uint8_t g_ToolGetICCIDStep;
+
+void ToolProcess(void);
+void InitToolVar(void);
+
+#endif /* __APP_TOOL_H */

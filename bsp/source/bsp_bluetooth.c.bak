@@ -1,0 +1,116 @@
+#include "bsp.h"
+
+uint8_t g_BTLinkStatus;
+uint8_t g_BTMode;
+uint8_t g_BTInitStep;
+bool g_BTInitOk;
+uint32_t g_ReconnectBTDelay;
+extern uint32_t g_ShouldEnterLowpowerDelay;
+/******************************************************************
+函数名称: void InitBluetoothIO(void)
+功能描述: 
+参数输入: 
+参数输出: 
+返 回 值: 
+其    他: 无
+******************************************************************/
+void InitBluetoothIO(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	HOLDWAKE_GPIO_CLK_ENABLE();
+	MODESW_GPIO_CLK_ENABLE();
+	LINK_GPIO_CLK_ENABLE();
+	
+	GPIO_Initure.Pin = HOLDWAKE_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;			/* 推挽输出 */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;			/* GPIO速度等级 */
+	HAL_GPIO_Init(HOLDWAKE_GPIO_PORT, &GPIO_Initure);	
+	BT_STAYAWAKE();	
+	
+	GPIO_Initure.Pin = MODESW_PIN;
+	HAL_GPIO_Init(MODESW_GPIO_PORT, &GPIO_Initure);	
+	if(!g_BTInitOk)
+	{
+		BT_MODIFY_MODE_EN();
+		g_BTMode = 1;
+		g_BTInitStep = 0;
+	}
+	else
+	{
+		BT_COMM_MODE_EN();
+		g_BTMode = 0;
+	}
+	
+	GPIO_Initure.Mode = GPIO_MODE_INPUT;
+	GPIO_Initure.Pin = LINK_PIN;
+	HAL_GPIO_Init(LINK_GPIO_PORT, &GPIO_Initure);	
+}
+
+void DeInitBluetoothIO(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	HOLDWAKE_GPIO_CLK_ENABLE();
+	MODESW_GPIO_CLK_ENABLE();
+	LINK_GPIO_CLK_ENABLE();
+	
+	GPIO_Initure.Pin = HOLDWAKE_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* 推挽输出 */
+	GPIO_Initure.Pull      = GPIO_NOPULL;
+	HAL_GPIO_Init(HOLDWAKE_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = MODESW_PIN;
+	HAL_GPIO_Init(MODESW_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = LINK_PIN;
+	HAL_GPIO_Init(LINK_GPIO_PORT, &GPIO_Initure);	
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: CheckSwitch
+*	功能说明: 检测开关
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void CheckBTConnetStatus(void)
+{
+	if(HAL_GPIO_ReadPin(LINK_GPIO_PORT,LINK_PIN) == GPIO_PIN_RESET && g_BTLinkStatus == 1)
+		g_BTLinkStatus = 0;
+	else if(HAL_GPIO_ReadPin(LINK_GPIO_PORT,LINK_PIN) == GPIO_PIN_SET && g_BTLinkStatus == 0)
+	{
+		g_BTLinkStatus = 1;
+		g_ReconnectBTDelay = TIM2->CNT;
+	}
+
+	if(g_BTLinkStatus == 1)
+		g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+}
+
+
+/****************************************************************************
+函数名称: void BTSendAT(char* s)
+功能描述: 
+参数输入: 
+参数输出: 
+返  回  值: 无
+其      他: 无
+*****************************************************************************/
+void BTSendAT(char* s)
+{
+	uint16_t len;
+	
+	memset(g_TxBuf3,0,sizeof(g_TxBuf3));
+	len = strlen(s);
+	memcpy(g_TxBuf3,s,len);
+	UartSend(&g_Uart3,g_TxBuf3,len);		
+}
+
+

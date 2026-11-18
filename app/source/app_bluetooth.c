@@ -1,0 +1,405 @@
+
+#include "bsp.h"
+#include "main.h"
+
+
+
+uint8_t g_BTWaitFlag;
+uint32_t g_BTWaitDelay;
+uint8_t g_BTMac[6];
+char g_BTMacASCII[13];
+uint8_t sendlen = 16;
+uint8_t g_BTData[560];
+uint8_t g_WaitBTRxFlag;
+uint16_t g_BTRxOffset;
+uint16_t g_BTRxLen;
+uint32_t g_BTRxWaitDelay;
+
+uint8_t g_BTCmdData[32];
+
+uint8_t g_SendAck;
+uint8_t g_AckType;
+uint8_t g_SendStatus;
+
+uint8_t g_ChangeMode;
+uint32_t g_ChangeModeDelay;
+
+/******************************************************************
+函数名称: void BTSendFun(uint8_t* data,uint16_t len)
+功能描述: 
+参数输入: 
+参数输出: 
+返 回 值: 
+其    他: 无
+******************************************************************/
+void BTSendFun(uint8_t* data,uint16_t len)
+{
+	uint16_t crc;
+	
+	memset(g_SecTxBuf1,0,sizeof(g_SecTxBuf1));
+	g_SecTxBuf1[0] = 0x5A;
+	g_SecTxBuf1[1] = 0xA5;
+	g_SecTxBuf1[2] = 0x5A;
+	g_SecTxBuf1[3] = 0xA5;
+	g_SecTxBuf1[4] = len+4;
+	g_SecTxBuf1[5] = 0;
+	memcpy(g_ecbTime,(uint8_t*)&g_SysTime,6);
+	memcpy(g_SecTxBuf1+6,g_ecbTime,6);
+	encrypt(data,32);
+	memcpy(g_SecTxBuf1+12,g_BTCmdData,len+4);
+	crc = CRC16(g_SecTxBuf1, len+16);
+	g_SecTxBuf1[len+16] = crc&0xFF;
+	g_SecTxBuf1[len+17] = (crc>>8)&0xFF;
+	UartSend(&g_Uart1,g_SecTxBuf1,len+18);
+}
+
+
+/******************************************************************
+函数名称: void BTSendAck(void)
+功能描述: 
+参数输入: 
+参数输出: 
+返 回 值: 
+其    他: 无
+******************************************************************/
+void BTSendDoorStatus(void)
+{
+	uint16_t crc;
+	
+	memset(g_tmpBuf,0,sizeof(g_tmpBuf));
+	g_tmpBuf[0] = 0xB1;
+	g_tmpBuf[1] = 0x02;
+	g_tmpBuf[2] = 28;
+	g_tmpBuf[3] = 0x00;
+	
+	g_tmpBuf[4] = g_LockMGAStatus;			
+	g_tmpBuf[5] = g_LockHeadStatus;
+	if(g_NetOpenDoor == 2)
+		g_tmpBuf[6] = 6;
+	else
+		g_tmpBuf[6] = g_OpenLockType;
+	
+	if(g_NetOpenDoor == 2)
+	{
+		g_tmpBuf[7] = (g_NetOpenDoorCmd>>24)&0xFF;
+		g_tmpBuf[8] = (g_NetOpenDoorCmd>>16)&0xFF;
+		g_tmpBuf[9] = (g_NetOpenDoorCmd>>8)&0xFF;
+		g_tmpBuf[10] = g_NetOpenDoorCmd&0xFF;
+	}
+	else if(g_OpenLockType == 1)
+	{
+		g_tmpBuf[7] = (g_OpenDoorCardID>>24)&0xFF;
+		g_tmpBuf[8] = (g_OpenDoorCardID>>16)&0xFF;
+		g_tmpBuf[9] = (g_OpenDoorCardID>>8)&0xFF;
+		g_tmpBuf[10] = g_OpenDoorCardID&0xFF;
+	}
+	else if(g_OpenLockType == 2)
+	{
+		g_tmpBuf[7] = (g_NetOpenDoorCmd>>24)&0xFF;
+		g_tmpBuf[8] = (g_NetOpenDoorCmd>>16)&0xFF;
+		g_tmpBuf[9] = (g_NetOpenDoorCmd>>8)&0xFF;
+		g_tmpBuf[10] = g_NetOpenDoorCmd&0xFF;
+	}
+	g_tmpBuf[11] = g_LockMGAStatus;
+	g_tmpBuf[12] = 0;
+	g_tmpBuf[13] = g_UnLockStatus;
+	g_tmpBuf[14] = g_LockStatus;
+	g_tmpBuf[15] = g_OCFlag;
+	Get_Adc_Average(ADC_CHANNEL_6,10);
+	g_tmpBuf[16] = g_BatVal;
+	crc = CRC16(g_tmpBuf, 30);
+	g_tmpBuf[30] = crc&0xFF;
+	g_tmpBuf[31] = (crc>>8)&0xFF;
+	BTSendFun(g_tmpBuf,32);
+}
+
+/******************************************************************
+函数名称: void InitBluetooth(void)
+功能描述: 
+参数输入: 
+参数输出: 
+返 回 值: 
+其    他: 无
+******************************************************************/
+void InitBluetooth(void)
+{
+	char str[40];
+	
+	if(g_Usart3RxSta == 1)
+	{
+		g_Usart3RxSta = 0;
+		if(strstr((const char*)g_RxBuf3,btok) != NULL)
+		{
+			if(g_BTInitStep == 2)
+			{
+				char *p;
+				char mac[12];
+				uint8_t i;
+				
+				p = (char*)g_RxBuf3;
+				p = strstr(p,_bdaddr);
+				strncpy(mac,p+strlen(_bdaddr),12);
+				strncpy(g_BTMacASCII,mac,12);
+				for(i=0;i<6;i++)
+				{
+					g_BTMac[i] = Asc2Bcd(mac[2*i],mac[2*i+1]);
+				}
+				g_BTInitStep++;
+			}
+			else if(g_BTInitStep == 3)
+			{				
+				memset(str,0,sizeof(str));
+				memcpy(str,_name,strlen(_name));
+				strcat(str,"SHMJ_");
+				strcat(str,g_BTMacASCII);
+				
+				if(strstr((const char*)g_RxBuf3,str) != NULL)
+					g_BTInitStep = 5;
+				else
+					g_BTInitStep = 4;				
+			}
+			else if(g_BTInitStep == 5)
+			{
+				if(strstr((const char*)g_RxBuf3,_role) != NULL)
+				{
+					g_BTInitOk = true;
+					g_BTInitStep = 0;
+					g_BTMode = 0;
+					BT_COMM_MODE_EN();
+					return;
+				}
+				else
+					g_BTInitStep = 6;
+			}
+			else if(g_BTInitStep == 6)
+			{
+				g_BTInitOk = true;
+				g_BTInitStep = 0;
+				g_BTMode = 0;
+				BT_COMM_MODE_EN();
+				return;
+			}
+			else if(g_BTInitStep == 99)
+			{
+				g_BTInitStep = 0;
+				g_BTWaitFlag = 0;
+			}
+			else
+			{
+				g_BTInitStep++;
+			}
+			g_BTWaitFlag = 0;
+		}	
+		else if(strstr((const char*)g_RxBuf3,bterror) != NULL)
+		{
+			g_BTInitStep = 99;
+			g_BTWaitFlag = 0;
+		}
+		memset(g_RxBuf3,0,sizeof(g_RxBuf3));
+	}
+	
+	if((JudgeSomeDelayInProOk(g_Uart3.usTxTimer,g_BTWaitDelay*Delay1Sec) == true && g_BTWaitFlag == 1) || g_BTWaitFlag == 0)
+	{
+		switch(g_BTInitStep)
+		{
+			case 0:
+				if(g_BTMode == 0)
+				{
+					BT_MODIFY_MODE_EN();
+					g_BTMode = 1;
+				}
+				g_BTInitStep = 1;
+				g_BTWaitFlag = 0;
+				g_BTWaitDelay = 1;
+				break;
+			
+			case 1:
+				BTSendAT(btat);
+				g_BTWaitFlag = 1;
+				break;
+			
+			case 2:
+				BTSendAT(checkbdaddr);
+				g_BTWaitFlag = 1;
+				break;
+			
+			case 3:
+				BTSendAT(checkname);
+				g_BTWaitFlag = 1;
+				break;
+			
+			case 4:
+				{
+					memset(str,0,sizeof(str));
+					memcpy(str,setname,strlen(setname));						
+					strcat(str,g_BTMacASCII);
+					str[strlen(str)] = 0x0D;
+					str[strlen(str)] = 0x0A;
+					BTSendAT(str);
+				}
+				g_BTWaitFlag = 1;
+				break;		
+			
+			case 5:
+				BTSendAT(checkrole);
+				g_BTWaitFlag = 1;
+				break;
+
+			case 6:
+				BTSendAT(setrole);
+				g_BTWaitFlag = 1;
+				break;
+
+			case 99:
+				BTSendAT(btreset);
+				g_BTWaitFlag = 1;
+				break;
+			default:
+				break;
+		}
+	}
+}
+
+
+/******************************************************************
+函数名称: void BluetoothPro(void)
+功能描述: 
+参数输入: 
+参数输出: 
+返 回 值: 
+其    他: 无
+******************************************************************/
+void BluetoothPro(void)
+{		
+	char str[16];
+	
+	if(g_Usart3RxSta == 1)
+	{
+		g_Usart3RxSta = 0;
+		if(g_RxBuf3[0] == 0x5A && g_RxBuf3[1] == 0xA5)
+		{
+			g_BTRxLen = g_RxBuf3[4]+(g_RxBuf3[5]<<8)+14;
+			if(g_Uart3.usRxCount >= g_BTRxLen)
+			{
+				memcpy(g_BTData,g_RxBuf3,g_BTRxLen);
+				g_WaitBTRxFlag = 0;
+				g_BTRxOffset = 0;
+			}
+			else if(g_Uart3.usRxCount < g_BTRxLen)
+			{
+				memcpy(g_BTData,g_RxBuf3,g_Uart3.usRxCount);
+				g_WaitBTRxFlag = 1;
+				g_BTRxOffset = g_Uart3.usRxCount;
+				g_BTRxWaitDelay = TIM2->CNT;
+			}
+		}
+		else if(g_WaitBTRxFlag == 1)
+		{
+			memcpy(g_BTData+g_BTRxOffset,g_RxBuf3,g_Uart3.usRxCount);
+			if(g_BTRxOffset+g_Uart3.usRxCount >= g_BTRxLen)
+			{
+				g_WaitBTRxFlag = 0;
+				g_BTRxOffset = 0;
+			}
+			else
+			{
+				g_BTRxOffset = g_BTRxOffset+g_Uart3.usRxCount;
+				g_BTRxWaitDelay = TIM2->CNT;
+			}
+		}
+		
+		if(g_WaitBTRxFlag == 0)
+		{
+			if(g_BTData[0] == 0x5A && g_BTData[1] == 0xA5 && CheckCRC16(g_BTData,g_BTRxLen))
+			{
+				g_ReconnectBTDelay = TIM2->CNT;
+				memcpy(g_ecbTime,g_BTData+6,6);
+				decrypt(g_ecbTime,g_BTData+12,g_BTRxLen-14);
+				if(g_BTCmdData[0] == 0xA1 && CheckCRC16(g_BTCmdData,32))
+				{
+					switch(g_BTCmdData[1])
+					{
+						case 0x01:
+							sprintf(str,"%s","SXSH_MJPHONE");
+							if(memcmp(str,g_BTCmdData+4,12) == 0)
+							{
+								g_SendAck = 1;
+								g_AckType = 1;
+							}
+							break;
+							
+						case 0x02:
+							g_SendStatus = 2;
+							break;
+						
+						case 0x03:
+							if(memcmp(g_SysPar.openlockcmd,g_BTCmdData+4,8) == 0 || memcmp(g_BTOpenLockCmd,g_BTCmdData+4,8) == 0 )
+							{
+								LOCK_OPENENABLE();
+								g_OpenLock = true;
+								g_Open1MinDelay = TIM2->CNT;
+								g_SendStatus = 1;
+								g_OpenLockType = 7;
+							}
+							break;
+							
+						case 0x04:
+							if(memcmp(g_SysPar.openlockcmd,g_BTCmdData+4,8) == 0)
+							{
+								memcpy(g_SysPar.openlockcmd,g_BTCmdData+12,8);
+								g_SysPar.crc16 = CRC16((uint8_t*)&g_SysPar,sizeof(g_SysPar)-2);
+								WriteSysPar();
+								g_SendAck = 1;
+								g_AckType = 1;								
+							}
+							else 
+							{
+								g_SendAck = 1;
+								g_AckType = 2;
+							}
+							break;
+							
+						default:
+							break;
+					}
+				}
+			}
+			memset(g_BTData,0,sizeof(g_BTData));
+			memset(g_RxBuf3,0,sizeof(g_RxBuf3));
+		}
+	}
+	
+	if(JudgeSomeDelayInProOk(g_Uart3.usTxTimer,Delay50mSec) == true)
+	{
+		if(g_SendAck == 1 )
+		{
+			BTSendAck(g_AckType);
+			g_SendAck = 0;
+			return;
+		}
+		else if(g_SendStatus == 2)
+		{
+			BTSendDoorStatus();
+			g_SendStatus = 0;			
+			return;
+		}		
+	}
+	
+	if(JudgeSomeDelayInProOk(g_BTRxWaitDelay,Delay1Sec) == true && g_WaitBTRxFlag == 1)
+	{
+		g_WaitBTRxFlag = 0;
+	}
+	
+	if(JudgeSomeDelayInProOk(g_Open1MinDelay,Delay1Sec) == true && g_SendStatus == 1)
+	{
+		g_SendStatus = 2;
+	}
+	
+	if(g_BTLinkStatus == 1 && JudgeSomeDelayInProOk(g_ReconnectBTDelay,Delay30Sec) == true )
+	{
+		g_BTInitOk = false;
+		g_BTInitStep = 0;
+		g_BTMode = 0;
+		return;
+	}
+}

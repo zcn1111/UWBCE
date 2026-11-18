@@ -1,0 +1,104 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __BSP_BLUETOOTH_H
+#define __BSP_BLUETOOTH_H
+
+#include "stdint.h"
+#include "stdbool.h"
+
+#define MODESW_GPIO_CLK_ENABLE()     	__HAL_RCC_GPIOC_CLK_ENABLE()
+#define MODESW_GPIO_PORT              	GPIOC
+#define MODESW_PIN                    	GPIO_PIN_0
+
+#define HOLDWAKE_GPIO_CLK_ENABLE()      __HAL_RCC_GPIOA_CLK_ENABLE()
+#define HOLDWAKE_GPIO_PORT              GPIOA
+#define HOLDWAKE_PIN                    GPIO_PIN_8
+
+#define LINK_GPIO_CLK_ENABLE()      	__HAL_RCC_GPIOC_CLK_ENABLE()
+#define LINK_GPIO_PORT              	GPIOC
+#define LINK_PIN                    	GPIO_PIN_1
+
+#define BT_COMM_MODE_EN()				HAL_GPIO_WritePin(MODESW_GPIO_PORT,MODESW_PIN,GPIO_PIN_RESET);
+#define BT_MODIFY_MODE_EN()				HAL_GPIO_WritePin(MODESW_GPIO_PORT,MODESW_PIN,GPIO_PIN_SET);
+
+#define BT_ENTER_LOWPOWER()				HAL_GPIO_WritePin(HOLDWAKE_GPIO_PORT,HOLDWAKE_PIN,GPIO_PIN_RESET);
+#define BT_STAYAWAKE()					HAL_GPIO_WritePin(HOLDWAKE_GPIO_PORT,HOLDWAKE_PIN,GPIO_PIN_SET);
+
+
+#define btat				"AT\r\n"
+#define btok				"OK\r\n"
+#define bterror				"ERROR"
+#define checkname			"AT+NAME?\r\n"
+#define	_name				"+NAME:"
+#define setname				"AT+NAME=SHMJ_"
+#define checkbdaddr			"AT+LADDR?\r\n"
+#define	_bdaddr				"+LADDR:"
+#define checkraddr			"AT+RADDR?\r\n"
+#define _raddr				"+RADDR:"
+#define setraddr			"AT+RADDR="
+#define clearaddr			"AT+CLEARADDR\r\n"
+#define checkbind			"AT+BIND?\r\n"
+#define _bind				"+BIND:"
+#define setbind				"AT+BIND="
+#define	checkversion		"AT+VERSION?\r\n"
+#define	_version			"+VERSION:"
+#define	checkrole			"AT+ROLE?\r\n"
+#define	_role				"+ROLE:"
+#define	setrole				"AT+ROLE=0\r\n"
+#define	checkbaud			"AT+BAUD?\r\n"
+#define	baud				"+BAUD:"
+#define	setbaud				"AT+BAUD="
+#define	checkflowctl		"AT+FLOWCONTROL?\r\n"
+#define	flowctl				"+FLOWCONTROL:"
+#define	setflowctl			"AT+FLOWCONTROL="
+#define	checkauth			"AT+AUTH?\r\n"
+#define	auth				"+AUTH:"
+#define	setauth				"AT+AUTH="
+#define	checkpassword		"AT+PASSWORD?\r\n"
+#define	_password			"+PASSWORD:"
+#define	setpassword			"AT+PASSWORD=02191610\r\n"
+#define	scaninq				"AT+INQ="
+#define _scan				"+INQRESULT:"
+#define _scancomp			"+INQCOMP"
+#define quitscan			"AT+CANCEL\r\n"
+#define checkconnparam		"AT+BLECONNPARM?\r\n"
+#define _connparam			"+BLECONNPARM"
+#define	setconnparam		"AT+BLECONNPARM="
+#define checkpowermode		"AT+POWER?\r\n"
+#define _powermode			"+POWER:"
+#define	setpowermmode		"AT+POWER="
+#define	setlowpowermmode	"AT+POWER=1,1\r\n"
+#define	checkscanparm		"AT+SCANTIME?\r\n"
+#define	_scanparm			"+SCANTIME:"
+#define setscanparm			"AT+SCANTIME="
+#define checkadvint			"AT+ADVINT?\r\n"
+#define _advint				"+ADVINT:"
+#define setadvint			"AT+ADVINT="
+#define checktxpower		"AT+TXPOWER?\r\n"
+#define _txpower			"+TXPOWER:"
+#define settxpower			"AT+TXPOWER="
+#define	checkserviceuuid	"AT+BLESPPSERVICE?\r\n"
+#define	_serviceuuid		"+BLESPPSERVICE:"
+#define setserviceuuid		"AT+BLESPPSERVICE=b350\r\n"
+#define checktxduuid		"AT+BLECHARACTERTXD?\r\n"
+#define _txduuid			"+BLECHARACTERTXD:"
+#define settxduuid			"AT+BLECHARACTERTXD=b351\r\n"
+#define checkrxduuid		"AT+BLECHARACTERRXD?\r\n"
+#define _rxduuid			"+BLECHARACTERRXD:"
+#define setrxduuid			"AT+BLECHARACTERRXD=b352\r\n"
+#define btreset				"AT+RESET\r\n"
+
+
+extern uint8_t g_BTMode;
+extern uint8_t g_BTLinkStatus;
+extern bool g_BTInitOk;
+extern uint8_t g_BTInitStep;
+
+extern uint32_t g_ReconnectBTDelay;
+
+void InitBluetoothIO(void);
+void DeInitBluetoothIO(void);
+void CheckBTConnetStatus(void);
+void BTSendAT(char* s);
+
+
+#endif

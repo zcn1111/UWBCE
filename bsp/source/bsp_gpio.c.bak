@@ -1,0 +1,418 @@
+
+#include "bsp.h"
+#include "app_glovar.h"
+#include "lowpower.h"
+#include "app_tool.h"
+
+uint8_t g_CheckTool;	//1-检测到客服工具
+uint8_t	g_SelSIMFlag;
+
+uint8_t g_LedRToggleFlag;
+uint8_t g_LedGToggleFlag;
+uint32_t g_LedRToggleDelay;
+uint32_t g_LedGToggleDelay;
+
+
+
+extern uint8_t 	g_DataNetOk;
+
+/**
+ * @brief	CheckToolInit 检测客服工具插入引脚初始化
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void CheckToolInit(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	 __HAL_RCC_GPIOA_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = GPIO_PIN_0;
+	GPIO_Initure.Mode = GPIO_MODE_IT_FALLING;			/* 下降沿触发 */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;			/* GPIO速度等级 */
+	HAL_GPIO_Init(GPIOA, &GPIO_Initure);	
+	__HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_0);				//清除中断标志位
+	HAL_NVIC_SetPriority(EXTI0_IRQn,1,3); 				//抢占优先级为2，子优先级为3
+	HAL_NVIC_EnableIRQ(EXTI0_IRQn);						//使能
+	
+	if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_0) == GPIO_PIN_SET)
+	{
+		g_CheckTool = 0;
+	}
+	else
+	{
+		g_CheckTool = 1;
+		InitToolVar();
+	}
+}
+
+/**
+ * @brief	CheckTool 检测客服工具
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void CheckTool(void)
+{
+	if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_0) == GPIO_PIN_SET && g_CheckTool == 1)
+	{
+		g_CheckTool = 0;
+	}
+	else if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_0) == GPIO_PIN_RESET && g_CheckTool == 0)
+	{
+		g_CheckTool = 1;
+		InitToolVar();
+	}
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: InitLEDGpio
+*	功能说明: 配置LED的GPIO引脚
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void InitLED(void)
+{	
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	/* 打开GPIO时钟 */
+	LED_G_GPIO_CLK_ENABLE();
+	LED_R_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为输入 */
+	GPIO_Initure.Pin = LED_G_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_OD;			/* IN */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;	/* GPIO速度等级 */
+	HAL_GPIO_Init(LED_G_GPIO_PORT, &GPIO_Initure);	
+	LED_G_OFF();
+	
+	GPIO_Initure.Pin = LED_R_PIN;
+	HAL_GPIO_Init(LED_R_GPIO_PORT, &GPIO_Initure);	
+	LED_R_OFF();
+//	InitTimer1PWM(200,50);	//1000ms 50%
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: LedCtrl
+*	功能说明: 控制LED
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+
+void LedCtrl(void)
+{
+	if(g_LedGToggleFlag == 1 && JudgeSomeDelayInProOk(g_LedGToggleDelay,Delay1Sec))
+	{
+		g_LedGToggleFlag = 0;
+	}
+
+	if(g_LedRToggleFlag == 0)
+	{
+		if(g_BTLinkStatus == 1)
+			LED_R_ON();
+		else
+			LED_R_OFF();
+	}
+	
+	if(g_LedGToggleFlag == 0)
+	{
+		if(g_DataNetOk == 1)
+			LED_G_ON();
+		else
+			LED_G_OFF();
+	}
+}
+
+void DeInitLED(void)
+{	
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	/* 打开GPIO时钟 */
+	LED_G_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为输入 */
+	GPIO_Initure.Pin = LED_G_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* IN */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	HAL_GPIO_Init(LED_G_GPIO_PORT, &GPIO_Initure);	
+}
+/**
+ * @brief	CheckToolInit 检测客服工具插入引脚初始化
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void InitKeyGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	KEY_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = KEY1_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_IT_FALLING;			/* 下降沿触发 */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;			/* GPIO速度等级 */
+	HAL_GPIO_Init(KEY1_GPIO_PORT, &GPIO_Initure);	
+	
+	__HAL_GPIO_EXTI_CLEAR_IT(KEY1_PIN);				//清除中断标志位
+	HAL_NVIC_SetPriority(EXTI15_10_IRQn,1,3); 				//抢占优先级为2，子优先级为3
+	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);						//使能
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: CheckSwitch
+*	功能说明: 检测开关
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void CheckKey(void)
+{
+	if(READ_KEY1_STA() == GPIO_PIN_RESET)
+	{
+		
+	}
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: InitLockGpio
+*	功能说明: 
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void InitLockGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	DOOR_STA_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = DOOR_MAG_STA_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_IT_RISING;		/* 下降沿触发 */				
+	GPIO_Initure.Pull = GPIO_NOPULL;				/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;		/* GPIO速度等级 */
+	HAL_GPIO_Init(DOOR_MAG_STA_GPIO_PORT, &GPIO_Initure);		
+	
+	__HAL_GPIO_EXTI_CLEAR_IT(DOOR_MAG_STA_PIN);				//清除中断标志位
+	HAL_NVIC_SetPriority(EXTI9_5_IRQn,1,3); 				//抢占优先级为2，子优先级为3
+	HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);						//使能
+	
+	GPIO_Initure.Mode = GPIO_MODE_INPUT;		/* 下降沿触发 */	
+	GPIO_Initure.Pin = DOOR_UNLOCK_STA_PIN;
+	HAL_GPIO_Init(DOOR_UNLOCK_STA_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = DOOR_LOCK_STA_PIN;
+	HAL_GPIO_Init(DOOR_LOCK_STA_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pin = DOOR_OPEN_LOCK_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;		/* OUT_PP */
+	HAL_GPIO_Init(DOOR_OPEN_LOCK_GPIO_PORT, &GPIO_Initure);	
+	LOCK_OPENDISABLE();
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: DeInitLockGpio
+*	功能说明: 
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void DeInitLockGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	DOOR_STA_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;		/* 下降沿触发 */				
+	GPIO_Initure.Pull = GPIO_NOPULL;				/* 上下拉电阻不使能 */
+	GPIO_Initure.Pin = DOOR_UNLOCK_STA_PIN;
+	HAL_GPIO_Init(DOOR_UNLOCK_STA_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = DOOR_LOCK_STA_PIN;
+	HAL_GPIO_Init(DOOR_LOCK_STA_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pin = DOOR_OPEN_LOCK_PIN;
+	HAL_GPIO_Init(DOOR_OPEN_LOCK_GPIO_PORT, &GPIO_Initure);	
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: InitCelluarGpio
+*	功能说明: 
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void InitCelluarGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	CELLUAR_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = WAKEUPIN_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;			/* 下降沿触发 */
+	GPIO_Initure.Pull = GPIO_NOPULL;				/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;		/* GPIO速度等级 */
+	HAL_GPIO_Init(WAKEUPIN_GPIO_PORT, &GPIO_Initure);	
+	CELLUAR_WAKEUP_DISABLE();
+	
+	GPIO_Initure.Pin = RESETIN_PIN;
+	HAL_GPIO_Init(RESETIN_GPIO_PORT, &GPIO_Initure);
+	CELLUAR_RESET_DISABLE();
+	
+	GPIO_Initure.Pin = PWRKEY_PIN;
+	HAL_GPIO_Init(PWRKEY_GPIO_PORT, &GPIO_Initure);
+	CELLUAR_PWRKEY_DISABLE();
+	delay_ms(2000);
+	CELLUAR_PWRKEY_ENABLE();
+	delay_ms(600);
+	CELLUAR_PWRKEY_DISABLE();
+	
+	GPIO_Initure.Pin = DTR_PIN;
+	HAL_GPIO_Init(DTR_GPIO_PORT, &GPIO_Initure);
+	CELLUAR_DTR_RESET();
+}
+
+
+void DeInitCelluarGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	CELLUAR_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = WAKEUPIN_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* 下降沿触发 */
+	GPIO_Initure.Pull      = GPIO_NOPULL;
+	HAL_GPIO_Init(WAKEUPIN_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = RESETIN_PIN;
+	HAL_GPIO_Init(RESETIN_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pin = PWRKEY_PIN;
+	HAL_GPIO_Init(PWRKEY_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pin = DTR_PIN;
+	HAL_GPIO_Init(DTR_GPIO_PORT, &GPIO_Initure);
+}
+
+
+void InitSIMSwitchGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	SIM_SWITCH_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = SIM_SWITCH_GPIO_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;			/* 下降沿触发 */
+	GPIO_Initure.Pull = GPIO_NOPULL;				/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;		/* GPIO速度等级 */	
+	HAL_GPIO_Init(SIM_SWITCH_GPIO_PORT, &GPIO_Initure);
+	
+	if(g_SelSIMFlag == SELSIM1)
+		SEL_SIM1_ENABLE();
+	else
+		SEL_SIM2_ENABLE();
+}
+
+void DeInitSIMSwitchGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	SIM_SWITCH_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = SIM_SWITCH_GPIO_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* 下降沿触发 */
+	GPIO_Initure.Pull      = GPIO_NOPULL;
+	HAL_GPIO_Init(SIM_SWITCH_GPIO_PORT, &GPIO_Initure);
+}
+/*
+*********************************************************************************************************
+*	函 数 名: InitCelluarGpio
+*	功能说明: 
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void InitReaderGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	READER_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = WG0_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_INPUT;			/* 下降沿触发 */
+	GPIO_Initure.Pull = GPIO_NOPULL;				/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;		/* GPIO速度等级 */
+	HAL_GPIO_Init(WG0_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = WG1_PIN;
+	HAL_GPIO_Init(WG1_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pull = GPIO_PULLUP;
+	GPIO_Initure.Pin = READEREINT_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_IT_FALLING;			/* 下降沿触发 */
+	HAL_GPIO_Init(READEREINT_GPIO_PORT, &GPIO_Initure);	
+		
+	__HAL_GPIO_EXTI_CLEAR_IT(READEREINT_PIN);				//清除中断标志位
+	HAL_NVIC_SetPriority(EXTI15_10_IRQn,1,3); 				//抢占优先级为2，子优先级为3
+	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);						//使能
+}
+
+
+void DeInitReaderGpio(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	READER_GPIO_CLK_ENABLE();
+	
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = WG0_PIN;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* 下降沿触发 */
+	GPIO_Initure.Pull      = GPIO_NOPULL;
+	HAL_GPIO_Init(WG0_GPIO_PORT, &GPIO_Initure);	
+	
+	GPIO_Initure.Pin = WG1_PIN;
+	HAL_GPIO_Init(WG1_GPIO_PORT, &GPIO_Initure);
+	
+	GPIO_Initure.Pin = READEREINT_PIN;
+	HAL_GPIO_Init(READEREINT_GPIO_PORT, &GPIO_Initure);			
+}
+

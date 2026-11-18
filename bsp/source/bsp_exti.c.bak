@@ -1,0 +1,97 @@
+
+#include "bsp.h"
+#include "lowpower.h"
+#include "app_tool.h"
+#include "app_reader.h"
+
+uint32_t g_KeyCnt;
+/**
+ * @brief	EXTI0 中断处理函数
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void EXTI0_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(TOOL_GPIO_PIN);//调用中断处理公用函数
+}
+
+/**
+ * @brief	EXTI9_5 中断处理函数
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void EXTI9_5_IRQHandler(void)
+{
+	HAL_GPIO_EXTI_IRQHandler(DOOR_MAG_STA_PIN);
+}
+
+
+/**
+ * @brief	EXTI10-15 中断处理函数
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void EXTI15_10_IRQHandler(void)
+{	
+	HAL_GPIO_EXTI_IRQHandler(RTC_ALARM_GPIO_PIN);
+	HAL_GPIO_EXTI_IRQHandler(READEREINT_PIN);
+	HAL_GPIO_EXTI_IRQHandler(KEY1_PIN);
+}
+
+/**
+ * @brief	中断回调函数
+ *
+ * @param	中断引脚号
+ *
+ * @return  void
+ */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == TOOL_GPIO_PIN)
+	{
+		if(!g_InLowpowerMode)
+		{
+			g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+			if(g_ToolPowerOn == 0)
+			{
+				PWR_TOOL_ENABLE();
+				InitToolVar();
+				g_ToolPowerOn = 1;
+			}
+		}		
+		g_ShouldResetRTCAlarmFlag = 1;
+		g_CheckTool = 1; 
+
+	}	
+	else if(GPIO_Pin == RTC_ALARM_GPIO_PIN)
+	{
+//		if(g_CalHourFlag == 0)
+			g_CalHourFlag = 1;
+		g_ShouldResetRTCAlarmFlag = 1;
+		if(!g_InLowpowerMode)
+			g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+	}
+	else if(GPIO_Pin == KEY1_PIN)
+	{
+		if(!g_InLowpowerMode)
+			g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+		g_ShouldResetRTCAlarmFlag = 1;			
+	}
+	else if(GPIO_Pin == READEREINT_PIN)
+	{
+		WGPro();
+	}
+	else if(GPIO_Pin == DOOR_MAG_STA_PIN)
+	{
+		if(!g_InLowpowerMode)
+			g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+		g_ShouldResetRTCAlarmFlag = 1;
+	}
+}
+

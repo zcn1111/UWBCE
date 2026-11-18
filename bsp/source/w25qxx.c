@@ -1,0 +1,1226 @@
+#include "w25qxxConf.h"
+#include <string.h>
+
+#define W25QXX_DUMMY_BYTE         0xA5
+
+w25qxx_t	w25qxx;
+
+#define	W25qxx_Delay(delay)		HAL_Delay(delay)
+
+
+/**
+ * @brief	写一个字节
+ *
+ * @param	data 数据
+ *
+ * @return  void
+ */
+uint8_t	W25qxx_Spi(uint8_t	Data)
+{
+	uint8_t	ret;
+	HAL_SPI_TransmitReceive(&_W25QXX_SPI,&Data,&ret,1,100);
+	return ret;	
+}
+
+/**
+ * @brief	读ID
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+uint32_t W25qxx_ReadID(void)
+{
+	uint32_t Temp = 0, Temp0 = 0, Temp1 = 0, Temp2 = 0;
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x9F);
+	Temp0 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	Temp1 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	Temp2 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	Temp = (Temp0 << 16) | (Temp1 << 8) | Temp2;
+	return Temp;
+}
+
+/**
+ * @brief	读UNIQ ID
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void W25qxx_ReadUniqID(void)
+{
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x4B);
+	for(uint8_t	i=0;i<4;i++)
+		W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	for(uint8_t	i=0;i<8;i++)
+		w25qxx.UniqID[i] = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+}
+
+/**
+ * @brief	写使能
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void W25qxx_WriteEnable(void)
+{
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x06);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_Delay(1);
+}
+
+/**
+ * @brief	写失能
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void W25qxx_WriteDisable(void)
+{
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x04);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_Delay(1);
+}
+
+/**
+ * @brief	读取状态寄存器
+ *
+ * @param	寄存器
+ *
+ * @return  void
+ */
+uint8_t W25qxx_ReadStatusRegister(uint8_t	SelectStatusRegister_1_2_3)
+{
+	uint8_t	status=0;
+	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	if(SelectStatusRegister_1_2_3==1)
+	{
+		W25qxx_Spi(0x05);
+		status=W25qxx_Spi(W25QXX_DUMMY_BYTE);	
+		w25qxx.StatusRegister1 = status;
+	}
+	else if(SelectStatusRegister_1_2_3==2)
+	{
+		W25qxx_Spi(0x35);
+		status=W25qxx_Spi(W25QXX_DUMMY_BYTE);	
+		w25qxx.StatusRegister2 = status;
+	}
+	else
+	{
+		W25qxx_Spi(0x15);
+		status=W25qxx_Spi(W25QXX_DUMMY_BYTE);	
+		w25qxx.StatusRegister3 = status;
+	}	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	return status;
+}
+
+/**
+ * @brief	写寄存器
+ *
+ * @param	寄存器 数据
+ *
+ * @return  void
+ */
+void W25qxx_WriteStatusRegister(uint8_t	SelectStatusRegister_1_2_3,uint8_t Data)
+{
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	if(SelectStatusRegister_1_2_3==1)
+	{
+		W25qxx_Spi(0x01);
+		w25qxx.StatusRegister1 = Data;
+	}
+	else if(SelectStatusRegister_1_2_3==2)
+	{
+		W25qxx_Spi(0x31);
+		w25qxx.StatusRegister2 = Data;
+	}
+	else
+	{
+		W25qxx_Spi(0x11);
+		w25qxx.StatusRegister3 = Data;
+	}
+	W25qxx_Spi(Data);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+}
+
+/**
+ * @brief	W25qxx_WaitForWriteEnd
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void W25qxx_WaitForWriteEnd(void)
+{
+	W25qxx_Delay(1);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x05);
+	do
+	{
+		w25qxx.StatusRegister1 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+		W25qxx_Delay(1);
+	}
+	while((w25qxx.StatusRegister1 & 0x01) == 0x01);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+}
+
+/**
+ * @brief	初始化flash
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+bool W25qxx_Init(void)
+{
+	w25qxx.Lock=1;	
+	SPI1_Init();
+	
+	W25qxx_Delay(100);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_Delay(100);
+	uint32_t	id;
+	id=W25qxx_ReadID();
+	
+	switch(id&0x0000FFFF)
+	{
+		case 0x401A:	// 	w25q512
+			w25qxx.ID=W25Q512;
+			w25qxx.BlockCount=1024;
+		break;
+		case 0x4019:	// 	w25q256
+			w25qxx.ID=W25Q256;
+			w25qxx.BlockCount=512;
+		break;
+		case 0x4018:	// 	w25q128
+			w25qxx.ID=W25Q128;
+			w25qxx.BlockCount=256;
+		break;
+		case 0x4017:	//	w25q64
+			w25qxx.ID=W25Q64;
+			w25qxx.BlockCount=128;
+		break;
+		case 0x4016:	//	w25q32
+			w25qxx.ID=W25Q32;
+			w25qxx.BlockCount=64;
+		break;
+		case 0x4015:	//	w25q16
+			w25qxx.ID=W25Q16;
+			w25qxx.BlockCount=32;
+		break;
+		case 0x4014:	//	w25q80
+			w25qxx.ID=W25Q80;
+			w25qxx.BlockCount=16;
+		break;
+		case 0x4013:	//	w25q40
+			w25qxx.ID=W25Q40;
+			w25qxx.BlockCount=8;
+		break;
+		case 0x4012:	//	w25q20
+			w25qxx.ID=W25Q20;
+			w25qxx.BlockCount=4;
+		break;
+		case 0x4011:	//	w25q10
+			w25qxx.ID=W25Q10;
+			w25qxx.BlockCount=2;
+		break;
+		case 0x6017:	//	w25q64
+			w25qxx.ID=W25Q64;
+			w25qxx.BlockCount=128;
+		break;			
+		default:
+			w25qxx.Lock=0;	
+//			return false;
+//			w25qxx.ID=W25Q128;
+//			w25qxx.BlockCount=256;
+				
+	}		
+	w25qxx.PageSize=256;
+	w25qxx.SectorSize=0x1000;
+	w25qxx.SectorCount=w25qxx.BlockCount*16;
+	w25qxx.PageCount=(w25qxx.SectorCount*w25qxx.SectorSize)/w25qxx.PageSize;
+	w25qxx.BlockSize=w25qxx.SectorSize*16;
+	w25qxx.CapacityInKiloByte=(w25qxx.SectorCount*w25qxx.SectorSize)/1024;
+	W25qxx_ReadUniqID();
+	W25qxx_ReadStatusRegister(1);
+	W25qxx_ReadStatusRegister(2);
+	W25qxx_ReadStatusRegister(3);
+
+	w25qxx.Lock=0;	
+	return true;
+}	
+
+/**
+ * @brief	全片擦除
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void	W25qxx_EraseChip(void)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0xC7);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+
+	W25qxx_Delay(10);
+	w25qxx.Lock=0;	
+}
+
+/**
+ * @brief	Sector擦除
+ *
+ * @param	Sector地址
+ *
+ * @return  void
+ */
+void W25qxx_EraseSector(uint32_t SectorAddr)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+
+	W25qxx_WaitForWriteEnd();
+	SectorAddr = SectorAddr * w25qxx.SectorSize;
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x20);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((SectorAddr & 0xFF000000) >> 24);
+	W25qxx_Spi((SectorAddr & 0xFF0000) >> 16);
+	W25qxx_Spi((SectorAddr & 0xFF00) >> 8);
+	W25qxx_Spi(SectorAddr & 0xFF);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	block擦除
+ *
+ * @param	block地址
+ *
+ * @return  void
+ */
+void W25qxx_EraseBlock(uint32_t BlockAddr)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+
+	W25qxx_WaitForWriteEnd();
+	BlockAddr = BlockAddr * w25qxx.SectorSize*16;
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0xD8);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((BlockAddr & 0xFF000000) >> 24);
+	W25qxx_Spi((BlockAddr & 0xFF0000) >> 16);
+	W25qxx_Spi((BlockAddr & 0xFF00) >> 8);
+	W25qxx_Spi(BlockAddr & 0xFF);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	计算页所在Sector地址
+ *
+ * @param	页地址
+ *
+ * @return  sector地址
+ */
+uint32_t	W25qxx_PageToSector(uint32_t	PageAddress)
+{
+	return ((PageAddress*w25qxx.PageSize)/w25qxx.SectorSize);
+}
+
+/**
+ * @brief	计算页所在block
+ *
+ * @param	页地址
+ *
+ * @return  block地址
+ */
+uint32_t	W25qxx_PageToBlock(uint32_t	PageAddress)
+{
+	return ((PageAddress*w25qxx.PageSize)/w25qxx.BlockSize);
+}
+
+/**
+ * @brief	计算sector所在block地址
+ *
+ * @param	sector地址
+ *
+ * @return  block地址
+ */
+uint32_t	W25qxx_SectorToBlock(uint32_t	SectorAddress)
+{
+	return ((SectorAddress*w25qxx.SectorSize)/w25qxx.BlockSize);
+}
+
+/**
+ * @brief	sector地址换算页地址
+ *
+ * @param	sector地址
+ *
+ * @return  页地址
+ */
+uint32_t	W25qxx_SectorToPage(uint32_t	SectorAddress)
+{
+	return (SectorAddress*w25qxx.SectorSize)/w25qxx.PageSize;
+}
+
+/**
+ * @brief	block地址换算页地址
+ *
+ * @param	block地址
+ *
+ * @return  页地址
+ */
+uint32_t	W25qxx_BlockToPage(uint32_t	BlockAddress)
+{
+	return (BlockAddress*w25qxx.BlockSize)/w25qxx.PageSize;
+}
+
+/**
+ * @brief	判断是否为空页
+ *
+ * @param	页地址 页偏移 判断长度
+ *
+ * @return  1 空页 0 有数据
+ */
+bool 	W25qxx_IsEmptyPage(uint32_t Page_Address,uint32_t OffsetInByte,uint32_t NumByteToCheck_up_to_PageSize)
+{
+	while(w25qxx.Lock==1)
+	W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+	if(((NumByteToCheck_up_to_PageSize+OffsetInByte)>w25qxx.PageSize)||(NumByteToCheck_up_to_PageSize==0))
+		NumByteToCheck_up_to_PageSize=w25qxx.PageSize-OffsetInByte;
+	
+	uint8_t	pBuffer[32];
+	uint32_t	WorkAddress;
+	uint32_t	i;
+	for(i=OffsetInByte; i<w25qxx.PageSize; i+=sizeof(pBuffer))
+	{
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+		WorkAddress=(i+Page_Address*w25qxx.PageSize);
+		W25qxx_Spi(0x0B);
+		if(w25qxx.ID>=W25Q256)
+			W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+		W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+		W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+		W25qxx_Spi(WorkAddress & 0xFF);
+		W25qxx_Spi(0);
+		HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,sizeof(pBuffer),100);	
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+		for(uint8_t x=0;x<sizeof(pBuffer);x++)
+		{
+			if(pBuffer[x]!=0xFF)
+				goto NOT_EMPTY;		
+		}			
+	}	
+	if((w25qxx.PageSize+OffsetInByte)%sizeof(pBuffer)!=0)
+	{
+		i-=sizeof(pBuffer);
+		for( ; i<w25qxx.PageSize; i++)
+		{
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+			WorkAddress=(i+Page_Address*w25qxx.PageSize);
+			W25qxx_Spi(0x0B);
+			if(w25qxx.ID>=W25Q256)
+				W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+			W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+			W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+			W25qxx_Spi(WorkAddress & 0xFF);
+			W25qxx_Spi(0);
+			HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,1,100);	
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+			if(pBuffer[0]!=0xFF)
+				goto NOT_EMPTY;
+		}
+	}	
+
+	w25qxx.Lock=0;
+	return true;	
+	NOT_EMPTY:
+
+	w25qxx.Lock=0;
+	return false;
+}
+
+/**
+ * @brief	判断sector是否为空
+ *
+ * @param	sector地址 偏移 数量
+ *
+ * @return  1 sector为空 0 有数据
+ */
+bool 	W25qxx_IsEmptySector(uint32_t Sector_Address,uint32_t OffsetInByte,uint32_t NumByteToCheck_up_to_SectorSize)
+{
+	while(w25qxx.Lock==1)
+	W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+	if((NumByteToCheck_up_to_SectorSize>w25qxx.SectorSize)||(NumByteToCheck_up_to_SectorSize==0))
+		NumByteToCheck_up_to_SectorSize=w25qxx.SectorSize;
+	
+	uint8_t	pBuffer[32];
+	uint32_t	WorkAddress;
+	uint32_t	i;
+	for(i=OffsetInByte; i<w25qxx.SectorSize; i+=sizeof(pBuffer))
+	{
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+		WorkAddress=(i+Sector_Address*w25qxx.SectorSize);
+		W25qxx_Spi(0x0B);
+		if(w25qxx.ID>=W25Q256)
+			W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+		W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+		W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+		W25qxx_Spi(WorkAddress & 0xFF);
+		W25qxx_Spi(0);
+		HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,sizeof(pBuffer),100);	
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+		for(uint8_t x=0;x<sizeof(pBuffer);x++)
+		{
+			if(pBuffer[x]!=0xFF)
+				goto NOT_EMPTY;		
+		}			
+	}	
+	if((w25qxx.SectorSize+OffsetInByte)%sizeof(pBuffer)!=0)
+	{
+		i-=sizeof(pBuffer);
+		for( ; i<w25qxx.SectorSize; i++)
+		{
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+			WorkAddress=(i+Sector_Address*w25qxx.SectorSize);
+			W25qxx_Spi(0x0B);
+			if(w25qxx.ID>=W25Q256)
+				W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+			W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+			W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+			W25qxx_Spi(WorkAddress & 0xFF);
+			W25qxx_Spi(0);
+			HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,1,100);	
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+			if(pBuffer[0]!=0xFF)
+				goto NOT_EMPTY;
+		}
+	}	
+
+	w25qxx.Lock=0;
+	return true;	
+	NOT_EMPTY:
+
+	w25qxx.Lock=0;
+	return false;
+}
+
+/**
+ * @brief	判断block是否为空
+ *
+ * @param	block地址 偏移 数量
+ *
+ * @return  1 block为空 0 有数据
+ */
+bool 	W25qxx_IsEmptyBlock(uint32_t Block_Address,uint32_t OffsetInByte,uint32_t NumByteToCheck_up_to_BlockSize)
+{
+	while(w25qxx.Lock==1)
+	W25qxx_Delay(1);
+	w25qxx.Lock=1;	
+	if((NumByteToCheck_up_to_BlockSize>w25qxx.BlockSize)||(NumByteToCheck_up_to_BlockSize==0))
+		NumByteToCheck_up_to_BlockSize=w25qxx.BlockSize;
+	
+	uint8_t	pBuffer[32];
+	uint32_t	WorkAddress;
+	uint32_t	i;
+	for(i=OffsetInByte; i<w25qxx.BlockSize; i+=sizeof(pBuffer))
+	{
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+		WorkAddress=(i+Block_Address*w25qxx.BlockSize);
+		W25qxx_Spi(0x0B);
+		if(w25qxx.ID>=W25Q256)
+			W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+		W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+		W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+		W25qxx_Spi(WorkAddress & 0xFF);
+		W25qxx_Spi(0);
+		HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,sizeof(pBuffer),100);	
+		HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+		for(uint8_t x=0;x<sizeof(pBuffer);x++)
+		{
+			if(pBuffer[x]!=0xFF)
+				goto NOT_EMPTY;		
+		}			
+	}	
+	if((w25qxx.BlockSize+OffsetInByte)%sizeof(pBuffer)!=0)
+	{
+		i-=sizeof(pBuffer);
+		for( ; i<w25qxx.BlockSize; i++)
+		{
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+			WorkAddress=(i+Block_Address*w25qxx.BlockSize);
+			W25qxx_Spi(0x0B);
+			if(w25qxx.ID>=W25Q256)
+				W25qxx_Spi((WorkAddress & 0xFF000000) >> 24);
+			W25qxx_Spi((WorkAddress & 0xFF0000) >> 16);
+			W25qxx_Spi((WorkAddress & 0xFF00) >> 8);
+			W25qxx_Spi(WorkAddress & 0xFF);
+			W25qxx_Spi(0);
+			HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,1,100);	
+			HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+			if(pBuffer[0]!=0xFF)
+				goto NOT_EMPTY;
+		}
+	}	
+
+	w25qxx.Lock=0;
+	return true;	
+	NOT_EMPTY:
+
+	w25qxx.Lock=0;
+	return false;
+}
+
+/**
+ * @brief	写一个字节
+ *
+ * @param	数据 地址
+ *
+ * @return  void
+ */
+void W25qxx_WriteByte(uint8_t pBuffer, uint32_t WriteAddr_inBytes)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;
+
+	W25qxx_WaitForWriteEnd();
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x02);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((WriteAddr_inBytes & 0xFF000000) >> 24);
+	W25qxx_Spi((WriteAddr_inBytes & 0xFF0000) >> 16);
+	W25qxx_Spi((WriteAddr_inBytes & 0xFF00) >> 8);
+	W25qxx_Spi(WriteAddr_inBytes & 0xFF);
+	W25qxx_Spi(pBuffer);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	写多个字节
+ *
+ * @param	数据 地址 数量
+ *
+ * @return  void
+ */
+void W25qxx_WriteBytes(uint8_t *pBuffer, uint32_t WriteAddr_inBytes, uint32_t NumByteToWrite)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;
+	
+	W25qxx_WaitForWriteEnd();
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x02);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((WriteAddr_inBytes & 0xFF000000) >> 24);
+	W25qxx_Spi((WriteAddr_inBytes & 0xFF0000) >> 16);
+	W25qxx_Spi((WriteAddr_inBytes & 0xFF00) >> 8);
+	W25qxx_Spi(WriteAddr_inBytes&0xFF);
+	HAL_SPI_Transmit(&_W25QXX_SPI,pBuffer,NumByteToWrite,2000);	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	按页写flash
+ *
+ * @param	数据 页地址 页便宜 数量
+ *
+ * @return  void
+ */
+void 	W25qxx_WritePage(uint8_t *pBuffer	,uint32_t Page_Address,uint32_t OffsetInByte,uint32_t NumByteToWrite_up_to_PageSize)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;
+	if(((NumByteToWrite_up_to_PageSize+OffsetInByte)>w25qxx.PageSize)||(NumByteToWrite_up_to_PageSize==0))
+		NumByteToWrite_up_to_PageSize=w25qxx.PageSize-OffsetInByte;
+	if((OffsetInByte+NumByteToWrite_up_to_PageSize) > w25qxx.PageSize)
+		NumByteToWrite_up_to_PageSize = w25qxx.PageSize-OffsetInByte;
+
+	W25qxx_WaitForWriteEnd();
+	W25qxx_WriteEnable();
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x02);
+	Page_Address = (Page_Address*w25qxx.PageSize)+OffsetInByte;	
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((Page_Address & 0xFF000000) >> 24);
+	W25qxx_Spi((Page_Address & 0xFF0000) >> 16);
+	W25qxx_Spi((Page_Address & 0xFF00) >> 8);
+	W25qxx_Spi(Page_Address&0xFF);
+	HAL_SPI_Transmit(&_W25QXX_SPI,pBuffer,NumByteToWrite_up_to_PageSize,2000);	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+	W25qxx_WaitForWriteEnd();
+
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	W25qxx_WriteSector
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void 	W25qxx_WriteSector(uint8_t *pBuffer	,uint32_t Sector_Address,uint32_t OffsetInByte	,uint32_t NumByteToWrite_up_to_SectorSize)
+{
+	uint32_t	StartPage;
+	int32_t		BytesToWrite;
+	uint32_t	LocalOffset;
+	
+	if((NumByteToWrite_up_to_SectorSize>w25qxx.SectorSize)||(NumByteToWrite_up_to_SectorSize==0))
+		NumByteToWrite_up_to_SectorSize=w25qxx.SectorSize;
+
+	if(OffsetInByte>=w25qxx.SectorSize)
+	{
+		return;
+	}	
+		
+	if((OffsetInByte+NumByteToWrite_up_to_SectorSize) > w25qxx.SectorSize)
+		BytesToWrite = w25qxx.SectorSize-OffsetInByte;
+	else
+		BytesToWrite = NumByteToWrite_up_to_SectorSize;	
+	StartPage = W25qxx_SectorToPage(Sector_Address)+(OffsetInByte/w25qxx.PageSize);
+	LocalOffset = OffsetInByte%w25qxx.PageSize;	
+	do
+	{		
+		W25qxx_WritePage(pBuffer,StartPage,LocalOffset,BytesToWrite);
+		StartPage++;
+		BytesToWrite-=w25qxx.PageSize-LocalOffset;
+		pBuffer += w25qxx.PageSize - LocalOffset;
+		LocalOffset=0;
+	}while(BytesToWrite>0);		
+
+}
+
+bool FlashWriteData(uint8_t *pBuffer, uint32_t WriteAddr_inBytes, uint32_t NumByteToWrite)
+{
+	uint8_t tmp;	
+	tmp = 3;
+
+	uint8_t g_FlashWriteBuffer[4096];  
+	uint32_t offset_in_sector;
+	uint32_t write_in_sector;	//扇区内写字节数
+	uint32_t sector;
+	uint16_t i;
+	
+	uint8_t tmpbuf;
+	uint8_t blank;
+	uint8_t oversector;
+	
+	sector = WriteAddr_inBytes / w25qxx.SectorSize;				//计算开始字节偏移的扇区
+	offset_in_sector = (WriteAddr_inBytes) % w25qxx.SectorSize;	//计算开始扇区偏移
+	
+	/* 判断跨扇区 */
+	oversector = 0;
+	if (((WriteAddr_inBytes + NumByteToWrite) / w25qxx.SectorSize) != sector)	//结束字节扇区号和开始扇区号不一致
+		oversector = 1;
+	
+	/* 判断当前Flash位置是否为空 */
+	blank = 1;
+	for (i=0; i<NumByteToWrite; i++)
+	{
+		W25qxx_ReadBytes(&tmpbuf, WriteAddr_inBytes + i, 1);
+		if (tmpbuf != 0xFF)
+		{
+			blank = 0;
+			break;
+		}
+	}
+	
+	/* 当前Flash位置为空 直接写 */
+	if (blank == 1)
+	{
+		W25qxx_WritePages(pBuffer, WriteAddr_inBytes, NumByteToWrite);
+	}
+	
+	/* 当前Flash位置不为空 采用 读-改-写 方式 */
+	if (blank == 0)
+	{
+		/* 不跨扇区 直接写 */
+		if (oversector == 0)
+		{
+			memset(g_FlashWriteBuffer, 0xFF, sizeof(g_FlashWriteBuffer));
+			W25qxx_ReadSector(g_FlashWriteBuffer, sector, 0, w25qxx.SectorSize);	//读整扇区
+			for (i=0; i<NumByteToWrite; i++)
+			{
+				g_FlashWriteBuffer[offset_in_sector + i] = pBuffer[i];				//修改
+			}
+			W25qxx_EraseSector(sector);												//擦除扇区
+			W25qxx_WritePages(g_FlashWriteBuffer, sector * w25qxx.SectorSize, w25qxx.SectorSize);		//写当前扇区
+		}
+		/* 跨扇区 分两次写 */
+		else if (oversector == 1)
+		{
+			/* 写前扇区 */
+			write_in_sector = (w25qxx.SectorSize - offset_in_sector);
+			memset(g_FlashWriteBuffer, 0xFF, sizeof(g_FlashWriteBuffer));
+			W25qxx_ReadSector(g_FlashWriteBuffer, sector, 0, w25qxx.SectorSize);	//读整扇区
+			for (i=0; i<write_in_sector; i++)
+			{
+				g_FlashWriteBuffer[offset_in_sector + i] = pBuffer[i];
+			}
+			W25qxx_EraseSector(sector);
+			W25qxx_WritePages(g_FlashWriteBuffer, sector * w25qxx.SectorSize, w25qxx.SectorSize);
+			/* 写后扇区 */
+			write_in_sector = (NumByteToWrite - (w25qxx.SectorSize - offset_in_sector));
+			memset(g_FlashWriteBuffer, 0xFF, sizeof(g_FlashWriteBuffer));
+			W25qxx_ReadSector(g_FlashWriteBuffer, (sector + 1), 0, w25qxx.SectorSize);
+			for (i=0; i<write_in_sector; i++)
+			{
+				g_FlashWriteBuffer[i] = pBuffer[i + (w25qxx.SectorSize - offset_in_sector)];
+			}
+			W25qxx_EraseSector(sector + 1);
+			W25qxx_WritePages(g_FlashWriteBuffer, (sector + 1) * w25qxx.SectorSize, w25qxx.SectorSize);
+		}
+	}
+	
+	/* 校验写入数据 */
+	memset(g_FlashWriteBuffer, 0x00, sizeof(g_FlashWriteBuffer));
+	W25qxx_ReadBytes(g_FlashWriteBuffer, WriteAddr_inBytes, NumByteToWrite);	//读数据
+	if (memcmp(g_FlashWriteBuffer, pBuffer, NumByteToWrite) == 0)				//数据一致
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+	
+//	if(NumByteToWrite > 0)
+//	{
+//		while(tmp--)    
+//		{
+//			W25qxx_WritePages(pBuffer, WriteAddr_inBytes, NumByteToWrite);
+//			memset(g_FlashWriteBuffer,0,NumByteToWrite);        //sizeof(g_FlashWriteBuffer)
+//			W25qxx_ReadBytes(g_FlashWriteBuffer,WriteAddr_inBytes, NumByteToWrite);            
+//			
+//			if(memcmp(g_FlashWriteBuffer,pBuffer,NumByteToWrite) == 0)   //agj
+//			{
+//				return true;
+//			}
+//			else
+//			{
+//				return false;
+//			}
+//		}
+//		return false;	
+//	}
+}
+
+/**
+ * @brief	W25qxx_WriteBlock
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void 	W25qxx_WriteBlock	(uint8_t* pBuffer ,uint32_t Block_Address	,uint32_t OffsetInByte	,uint32_t	NumByteToWrite_up_to_BlockSize)
+{
+	if((NumByteToWrite_up_to_BlockSize>w25qxx.BlockSize)||(NumByteToWrite_up_to_BlockSize==0))
+		NumByteToWrite_up_to_BlockSize=w25qxx.BlockSize;
+
+	if(OffsetInByte>=w25qxx.BlockSize)
+	{
+
+		return;
+	}	
+	uint32_t	StartPage;
+	int32_t		BytesToWrite;
+	uint32_t	LocalOffset;	
+	if((OffsetInByte+NumByteToWrite_up_to_BlockSize) > w25qxx.BlockSize)
+		BytesToWrite = w25qxx.BlockSize-OffsetInByte;
+	else
+		BytesToWrite = NumByteToWrite_up_to_BlockSize;	
+	StartPage = W25qxx_BlockToPage(Block_Address)+(OffsetInByte/w25qxx.PageSize);
+	LocalOffset = OffsetInByte%w25qxx.PageSize;	
+	do
+	{		
+		W25qxx_WritePage(pBuffer,StartPage,LocalOffset,BytesToWrite);
+		StartPage++;
+		BytesToWrite-=w25qxx.PageSize-LocalOffset;
+		pBuffer += w25qxx.PageSize - LocalOffset;
+		LocalOffset=0;
+	}while(BytesToWrite>0);		
+
+}
+
+/**
+ * @brief	读一个字节
+ *
+ * @param   
+ *
+ * @return  void
+ */
+void 	W25qxx_ReadByte(uint8_t *pBuffer,uint32_t Bytes_Address)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x0B);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((Bytes_Address & 0xFF000000) >> 24);
+	W25qxx_Spi((Bytes_Address & 0xFF0000) >> 16);
+	W25qxx_Spi((Bytes_Address& 0xFF00) >> 8);
+	W25qxx_Spi(Bytes_Address & 0xFF);
+	W25qxx_Spi(0);
+	*pBuffer = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);	
+
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	读多个字节
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void W25qxx_ReadBytes(uint8_t* pBuffer, uint32_t ReadAddr, uint32_t NumByteToRead)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;
+
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x0B);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((ReadAddr & 0xFF000000) >> 24);
+	W25qxx_Spi((ReadAddr & 0xFF0000) >> 16);
+	W25qxx_Spi((ReadAddr& 0xFF00) >> 8);
+	W25qxx_Spi(ReadAddr & 0xFF);
+	W25qxx_Spi(0);
+	HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,NumByteToRead,2000);	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	按页读
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void 	W25qxx_ReadPage(uint8_t *pBuffer,uint32_t Page_Address,uint32_t OffsetInByte,uint32_t NumByteToRead_up_to_PageSize)
+{
+	while(w25qxx.Lock==1)
+		W25qxx_Delay(1);
+	w25qxx.Lock=1;
+	if((NumByteToRead_up_to_PageSize>w25qxx.PageSize)||(NumByteToRead_up_to_PageSize==0))
+		NumByteToRead_up_to_PageSize=w25qxx.PageSize;
+	if((OffsetInByte+NumByteToRead_up_to_PageSize) > w25qxx.PageSize)
+		NumByteToRead_up_to_PageSize = w25qxx.PageSize-OffsetInByte;
+
+	Page_Address = Page_Address*w25qxx.PageSize+OffsetInByte;
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_RESET);
+	W25qxx_Spi(0x0B);
+	if(w25qxx.ID>=W25Q256)
+		W25qxx_Spi((Page_Address & 0xFF000000) >> 24);
+	W25qxx_Spi((Page_Address & 0xFF0000) >> 16);
+	W25qxx_Spi((Page_Address& 0xFF00) >> 8);
+	W25qxx_Spi(Page_Address & 0xFF);
+	W25qxx_Spi(0);
+	HAL_SPI_Receive(&_W25QXX_SPI,pBuffer,NumByteToRead_up_to_PageSize,2000);	
+	HAL_GPIO_WritePin(_W25QXX_CS_GPIO,_W25QXX_CS_PIN,GPIO_PIN_SET);
+
+	W25qxx_Delay(1);
+	w25qxx.Lock=0;
+}
+
+/**
+ * @brief	W25qxx_ReadSector
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void 	W25qxx_ReadSector(uint8_t *pBuffer,uint32_t Sector_Address,uint32_t OffsetInByte,uint32_t NumByteToRead_up_to_SectorSize)
+{	
+	if((NumByteToRead_up_to_SectorSize>w25qxx.SectorSize)||(NumByteToRead_up_to_SectorSize==0))
+		NumByteToRead_up_to_SectorSize=w25qxx.SectorSize;
+
+	if(OffsetInByte>=w25qxx.SectorSize)
+	{
+
+		return;
+	}	
+	uint32_t	StartPage;
+	int32_t		BytesToRead;
+	uint32_t	LocalOffset;	
+	if((OffsetInByte+NumByteToRead_up_to_SectorSize) > w25qxx.SectorSize)
+		BytesToRead = w25qxx.SectorSize-OffsetInByte;
+	else
+		BytesToRead = NumByteToRead_up_to_SectorSize;	
+	StartPage = W25qxx_SectorToPage(Sector_Address)+(OffsetInByte/w25qxx.PageSize);
+	LocalOffset = OffsetInByte%w25qxx.PageSize;	
+	do
+	{		
+		W25qxx_ReadPage(pBuffer,StartPage,LocalOffset,BytesToRead);
+		StartPage++;
+		BytesToRead-=w25qxx.PageSize-LocalOffset;
+		pBuffer += w25qxx.PageSize - LocalOffset;
+		LocalOffset=0;
+	}while(BytesToRead>0);		
+
+}
+
+/**
+ * @brief	W25qxx_ReadBlock
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void 	W25qxx_ReadBlock(uint8_t* pBuffer,uint32_t Block_Address,uint32_t OffsetInByte,uint32_t	NumByteToRead_up_to_BlockSize)
+{
+	if((NumByteToRead_up_to_BlockSize>w25qxx.BlockSize)||(NumByteToRead_up_to_BlockSize==0))
+		NumByteToRead_up_to_BlockSize=w25qxx.BlockSize;
+	
+
+	if(OffsetInByte>=w25qxx.BlockSize)
+	{
+		
+		return;
+	}	
+	uint32_t	StartPage;
+	int32_t		BytesToRead;
+	uint32_t	LocalOffset;	
+	if((OffsetInByte+NumByteToRead_up_to_BlockSize) > w25qxx.BlockSize)
+		BytesToRead = w25qxx.BlockSize-OffsetInByte;
+	else
+		BytesToRead = NumByteToRead_up_to_BlockSize;	
+	StartPage = W25qxx_BlockToPage(Block_Address)+(OffsetInByte/w25qxx.PageSize);
+	LocalOffset = OffsetInByte%w25qxx.PageSize;	
+	do
+	{		
+		W25qxx_ReadPage(pBuffer,StartPage,LocalOffset,BytesToRead);
+		StartPage++;
+		BytesToRead-=w25qxx.PageSize-LocalOffset;
+		pBuffer += w25qxx.PageSize - LocalOffset;
+		LocalOffset=0;
+	}while(BytesToRead>0);		
+	
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名:  W25q_Write_N
+*	功能说明:  写任意长度数据，只适合确定下一扇区为空或者可擦除时写入，不适合中间插入数据
+*	形    参:  pBuffer : 数据源缓冲区；
+*			   WriteAddr_inBytes ：目标区域首地址
+*			   NumByteToWrite ：数据个数，任意大小，但不能超过芯片容量。
+*	返 回 值:  无
+*********************************************************************************************************
+*/
+void W25q_Write_N(uint8_t *pBuffer, uint32_t WriteAddr_inBytes, uint32_t NumByteToWrite)
+{
+	int i=0,j=0;
+	uint8_t *pbuf;
+	j = NumByteToWrite;
+	pbuf = pBuffer;
+	uint32_t writeAddr = WriteAddr_inBytes;
+	int last_page_size = 0;
+	
+	// 首次一定是从页的开始页写，但是后续连续写时，每次不能保证都从页的第一字节开始
+
+	last_page_size = 256-(writeAddr % 256);	// 不为0，则当前页没写完，需要写当前页，当前页只能写256-addr%256的字节数
+	
+	// 这次要写的数据会跨扇区，则擦除后续的扇区
+	for(i=0;i<j;i++)
+	{
+		if((writeAddr+i)% 4096 == 0)
+		{
+			W25qxx_EraseSector((writeAddr+i)/4096);
+		}
+	}
+		
+	do
+	{
+		// 扇区头，则擦扇区
+		if(writeAddr % 4096 == 0)
+		{
+			W25qxx_EraseSector(writeAddr/4096);
+		}
+
+		// 当前页没写完
+		if(last_page_size)// 余256也会进，不影响
+		{
+			if(j >= last_page_size)// 当前页不够写，先写完当前页
+			{
+				W25qxx_WriteBytes(pbuf,writeAddr ,last_page_size);
+				pbuf += last_page_size;
+				writeAddr += last_page_size;
+				j-=last_page_size;
+			}
+			else// 当前页足够写
+			{
+				W25qxx_WriteBytes(pbuf,writeAddr ,j);
+				pbuf += j;
+				writeAddr += j;
+				j-=j;
+			}
+			last_page_size = 0;
+		}
+		else if((j >=256)&&(last_page_size == 0))// 数据够整页整页写
+		{
+			W25qxx_WriteBytes(pbuf,writeAddr ,256);
+			pbuf += 256;
+			writeAddr += 256;
+			j-=256;
+		}
+		else if(j < 256)// 写到了末尾，数量已经不够最后一页
+		{
+			W25qxx_WriteBytes(pbuf,writeAddr,j);
+			pbuf += j;
+			writeAddr += j;
+			j-=j;
+		}
+	}
+	while(j);
+}
+
+/******************************************************************
+函数名称: void Soft_SPIFlashWrite(u8* Pbuffer,u32 Writeaddr,u16 NumberByteToWrite)
+功能描述: 写入函数，具有自动换页功能
+参数输入:    pBuffer			数据存储区
+             WriteAddr		开始写入的地址(最大32bit)
+             NumByteToWrite	要写入的字节数(最大65535)
+参数输出: 
+返回值 : 无
+其他: 无
+******************************************************************/
+void W25qxx_WritePages(uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite)
+{
+    uint16_t pageremain;
+    pageremain = 256 - WriteAddr % 256; //单页剩余的字节数
+
+    if(NumByteToWrite > 0)
+	{
+		if(NumByteToWrite <= pageremain)pageremain = NumByteToWrite; //不大于256个字节
+
+		while(1)
+		{
+			W25qxx_WriteBytes(pBuffer, WriteAddr, pageremain);
+
+			if(NumByteToWrite == pageremain)break; //写入结束了
+
+			else //NumByteToWrite>pageremain
+			{
+				pBuffer += pageremain;
+				WriteAddr += pageremain;
+
+				NumByteToWrite -= pageremain;			 //减去已经写入了的字节数
+
+				if(NumByteToWrite > 256)pageremain = 256; //一次可以写入256个字节
+
+				else pageremain = NumByteToWrite; 	 //不够256个字节了
+			}
+		}       		
+	}
+}
+
+
+/******************************************************************
+函数名称: bool FindFlashIsBlank(uint8_t *buf, uint16_t len)
+功能描述:判断BUF 寄存器是不是空的
+参数输入: 
+参数输出: 
+返 回 值:  TRUE = BLANK ,FALSE = NO BLANK
+其    他: 无
+******************************************************************/
+
+bool FindFlashIsBlank(uint8_t *buf, uint16_t len)
+{
+	uint16_t i;
+	for(i=0;i<len;i++)
+	{
+		if(buf[i] != 0xff)
+		{
+			break;
+		}
+	}
+	if( i == len )
+		return true;// IS BLANK
+	else
+		return false; // NO BLANK
+}
+/******************************************************************
+函数名称: Bool FlashReadData(uint16_t PageAddr,uint16_t ByteAddr,uint8_t *buf,uint16_t Len,uint8_t ClrFlag, Bool *BlkFlag)
+功能描述: 读数据从FLASH 中，
+参数输入: *buf 读缓冲
+          		   PageAddr 页地址
+          		   ByteAddr 字节地址
+                        Len  读多少个字节FlashReadData
+参数输出: *buf
+返 回 值: TRUE 页地址对读数正确，FALSE  页地址错误读数错误
+其    他: 无
+******************************************************************/
+bool FlashReadData(uint8_t* pBuffer, uint32_t ReadAddr, uint32_t NumByteToRead,uint8_t ClrFlag)
+{	
+	uint16_t i;                                                
+	if(NumByteToRead > 0)
+	{
+        W25qxx_ReadBytes(pBuffer,ReadAddr, NumByteToRead); 
+		if ( FindFlashIsBlank(pBuffer,NumByteToRead)  == true )
+		{
+			if( ClrFlag == true)
+			{
+				for( i = 0 ; i < NumByteToRead ; i++)			// 将页缓冲清0,后面程序判断FFH为空-WT
+				{
+					* ( pBuffer + i )  = 0;
+				}
+			}
+		}
+		return true;	
+	}
+	else
+		return false;
+}
+
+
+

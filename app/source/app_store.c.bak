@@ -1,0 +1,82 @@
+#include "main.h"
+
+DATAINFLASH g_StatusDatainFlash;	//DTU 状态数据
+DATAINFLASH g_WarnDatainFlash;		//DTU 报警原始数据
+
+/**
+ * @brief	初始化数据读写参数
+ *
+ * @param	void	
+ *
+ * @return  void
+ */
+void InitFlashPar(void)
+{
+	g_StatusDatainFlash.flashstartaddr = FLASH_STATUSDATA_START;
+	g_StatusDatainFlash.flashlen = FLASH_STATUSDATA_LEN;
+	g_StatusDatainFlash.datalen = DATALEN_32BYTES;
+	g_StatusDatainFlash.datacnt = DATACNT_32BYTES;
+	g_StatusDatainFlash.baglen = BAGLEN_32BYTES;
+	FindWriteDataAddr(&g_StatusDatainFlash);
+	FindNeedSendCnt(&g_StatusDatainFlash);
+}
+
+
+/**
+ * @brief	打包状态信息
+ *
+ * @param	flg 数据类型 no 主板类型及编号 time 打包时间
+ *
+ * @return  void
+ */
+void GenerateStatus(uint8_t flg)
+{	
+	uint8_t tmpbuf[32];
+	
+	memset(tmpbuf,0,32);
+	
+	tmpbuf[0] = 0xB9;
+	tmpbuf[1] = 0x62;
+	memcpy(tmpbuf+2,g_MobileInFlash.mobileno[4],6);
+	TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+	memcpy(tmpbuf+8,(uint8_t*)&g_BCDTime,6);
+	tmpbuf[14] = flg;
+	
+	Get_Adc_Average(ADC_CHANNEL_5,10);
+	tmpbuf[28] = g_BatVal;
+	tmpbuf[29] = 0xFC;
+	tmpbuf[30] = 0x3F;
+	tmpbuf[31] = CheckSum(31,tmpbuf);
+	SaveRecordToFlash(&g_StatusDatainFlash,tmpbuf);
+}
+
+/**
+ * @brief	打包原始数据
+ *
+ * @param	no 主板类型编号 buf 原始数据
+ *
+ * @return  void
+ */
+void GenerateWarnData(OBJECT_INFO obj)
+{
+	uint8_t tmpbuf[64];
+	
+	memset(tmpbuf,0,64);
+	
+	tmpbuf[0] = 0xDA;
+	tmpbuf[1] = 0x16;
+	memcpy(tmpbuf+2,g_MobileInFlash.mobileno[4],6);
+	
+	TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+	memcpy(tmpbuf+8,(uint8_t*)&g_BCDTime,6);
+	tmpbuf[14] = obj.cnt;
+	tmpbuf[15] = obj.no;
+	memcpy(tmpbuf+16,(uint8_t*)&obj.distance,16);
+	Get_Adc_Average(ADC_CHANNEL_5,10);
+	tmpbuf[60] = g_BatVal;
+	tmpbuf[61] = 0xFC;
+	tmpbuf[62] = 0x3F;
+	tmpbuf[63] = CheckSum(63,tmpbuf);
+	SaveRecordToFlash(&g_WarnDatainFlash,tmpbuf);
+}
+

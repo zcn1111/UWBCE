@@ -1,0 +1,127 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __BSP_GPIO_H
+#define __BSP_GPIO_H
+
+#include "stm32l4xx.h"
+#include "stdbool.h"
+
+#define TOOL_GPIO_PIN					GPIO_PIN_0	//检测客服工具插入引脚
+
+#define DOOR_STA_GPIO_CLK_ENABLE()      {__HAL_RCC_GPIOA_CLK_ENABLE();__HAL_RCC_GPIOB_CLK_ENABLE();__HAL_RCC_GPIOC_CLK_ENABLE();}
+#define DOOR_MAG_STA_GPIO_PORT			GPIOA
+#define DOOR_MAG_STA_PIN				GPIO_PIN_9
+#define DOOR_UNLOCK_STA_GPIO_PORT		GPIOA
+#define DOOR_UNLOCK_STA_PIN				GPIO_PIN_11
+#define DOOR_LOCK_STA_GPIO_PORT			GPIOB
+#define DOOR_LOCK_STA_PIN				GPIO_PIN_13
+#define DOOR_OPEN_LOCK_GPIO_PORT		GPIOC
+#define DOOR_OPEN_LOCK_PIN				GPIO_PIN_12
+#define LOCK_OPENENABLE()				HAL_GPIO_WritePin(DOOR_OPEN_LOCK_GPIO_PORT,DOOR_OPEN_LOCK_PIN,GPIO_PIN_SET)
+#define LOCK_OPENDISABLE()				HAL_GPIO_WritePin(DOOR_OPEN_LOCK_GPIO_PORT,DOOR_OPEN_LOCK_PIN,GPIO_PIN_RESET)
+
+#define KEY_GPIO_CLK_ENABLE()      		__HAL_RCC_GPIOC_CLK_ENABLE();
+#define KEY1_GPIO_PORT					GPIOC
+#define KEY1_PIN						GPIO_PIN_11
+
+
+#define READ_DOOR_MAG_STA()				HAL_GPIO_ReadPin(DOOR_MAG_STA_GPIO_PORT,DOOR_MAG_STA_PIN)
+#define READ_DOOR_UNLOCK_STA()			HAL_GPIO_ReadPin(DOOR_UNLOCK_STA_GPIO_PORT,DOOR_UNLOCK_STA_PIN)
+#define READ_DOOR_LOCK_STA()			HAL_GPIO_ReadPin(DOOR_LOCK_STA_GPIO_PORT,DOOR_LOCK_STA_PIN)
+#define READ_KEY1_STA()					HAL_GPIO_ReadPin(KEY1_GPIO_PORT,KEY1_PIN)
+
+#define LED_R_GPIO_CLK_ENABLE()      	__HAL_RCC_GPIOA_CLK_ENABLE();
+#define LED_R_GPIO_PORT					GPIOA
+#define LED_R_PIN						GPIO_PIN_10
+#define LED_R_ON()						HAL_GPIO_WritePin(LED_R_GPIO_PORT,LED_R_PIN,GPIO_PIN_RESET)
+#define LED_R_OFF()						HAL_GPIO_WritePin(LED_R_GPIO_PORT,LED_R_PIN,GPIO_PIN_SET)
+#define LED_R_TOGGLE()					HAL_GPIO_TogglePin(LED_R_GPIO_PORT,LED_R_PIN)
+
+#define LED_G_GPIO_CLK_ENABLE()      	__HAL_RCC_GPIOB_CLK_ENABLE();
+#define LED_G_GPIO_PORT					GPIOB
+#define LED_G_PIN						GPIO_PIN_12
+#define LED_G_ON()						HAL_GPIO_WritePin(LED_G_GPIO_PORT,LED_G_PIN,GPIO_PIN_RESET)
+#define LED_G_OFF()						HAL_GPIO_WritePin(LED_G_GPIO_PORT,LED_G_PIN,GPIO_PIN_SET)
+#define LED_G_TOGGLE()					HAL_GPIO_TogglePin(LED_G_GPIO_PORT,LED_G_PIN)
+
+#define SIM_SWITCH_GPIO_CLK_ENABLE()    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+#define SIM_SWITCH_GPIO_PORT			GPIOB
+#define SIM_SWITCH_GPIO_PIN				GPIO_PIN_3
+
+#define CELLUAR_GPIO_CLK_ENABLE()       {__HAL_RCC_GPIOB_CLK_ENABLE();__HAL_RCC_GPIOC_CLK_ENABLE();__HAL_RCC_GPIOD_CLK_ENABLE();}
+
+#define WAKEUPIN_GPIO_PORT				GPIOB
+#define WAKEUPIN_PIN					GPIO_PIN_0
+
+#define RESETIN_GPIO_PORT				GPIOB
+#define RESETIN_PIN						GPIO_PIN_1
+
+#define PWRKEY_GPIO_PORT				GPIOB
+#define PWRKEY_PIN						GPIO_PIN_4
+
+#define DTR_GPIO_PORT					GPIOD
+#define DTR_PIN							GPIO_PIN_2
+
+#define SEL_SIM1_ENABLE()				HAL_GPIO_WritePin(GPIOB,SIM_SWITCH_GPIO_PIN,GPIO_PIN_RESET)
+#define SEL_SIM2_ENABLE()				HAL_GPIO_WritePin(GPIOB,SIM_SWITCH_GPIO_PIN,GPIO_PIN_SET)
+
+#define CELLUAR_WAKEUP_ENABLE()			HAL_GPIO_WritePin(GPIOB,GPIO_PIN_0,GPIO_PIN_SET)
+#define CELLUAR_WAKEUP_DISABLE()		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_0,GPIO_PIN_RESET)
+
+#define CELLUAR_RESET_ENABLE()			HAL_GPIO_WritePin(GPIOB,GPIO_PIN_1,GPIO_PIN_SET)
+#define CELLUAR_RESET_DISABLE()			HAL_GPIO_WritePin(GPIOB,GPIO_PIN_1,GPIO_PIN_RESET)
+
+#define CELLUAR_PWRKEY_ENABLE()			HAL_GPIO_WritePin(GPIOB,GPIO_PIN_4,GPIO_PIN_RESET)
+#define CELLUAR_PWRKEY_DISABLE()		HAL_GPIO_WritePin(GPIOB,GPIO_PIN_4,GPIO_PIN_SET)
+
+#define CELLUAR_DTR_SET()				HAL_GPIO_WritePin(GPIOD,GPIO_PIN_2,GPIO_PIN_SET)
+#define CELLUAR_DTR_RESET()				HAL_GPIO_WritePin(GPIOD,GPIO_PIN_2,GPIO_PIN_RESET)
+
+#define SELSIM1	0
+#define SELSIM2	1
+
+#define READER_GPIO_CLK_ENABLE()       	{__HAL_RCC_GPIOB_CLK_ENABLE();__HAL_RCC_GPIOC_CLK_ENABLE();}
+#define WG0_GPIO_PORT					GPIOC
+#define WG0_PIN							GPIO_PIN_8
+
+#define WG1_GPIO_PORT					GPIOC
+#define WG1_PIN							GPIO_PIN_9
+
+#define READEREINT_GPIO_PORT			GPIOB
+#define READEREINT_PIN					GPIO_PIN_14
+
+#define READ_WG0_STA()					HAL_GPIO_ReadPin(WG0_GPIO_PORT,WG0_PIN)
+
+
+extern uint8_t g_CheckTool;
+extern uint8_t g_BoardType;
+
+extern uint8_t		g_SelSIMFlag;
+
+extern uint8_t g_LedRToggleFlag;
+extern uint8_t g_LedGToggleFlag;
+extern uint8_t g_AlarmOnFlag;
+extern uint32_t g_AlarmOnDelay;
+
+void CheckToolInit(void);
+void CheckTool(void);
+void InitLED(void);
+void DeInitLED(void);
+void InitBeep(void);
+void CheckKey(void);
+void LedCtrl(void);
+void InitAlarmGpio(void);
+void AlarmCtrl(void);	
+void RecAlarmCtrl(void);
+void BoardTypeInit(void);
+void InitCelluarGpio(void);
+void DeInitCelluarGpio(void);
+void InitLockGpio(void);
+void DeInitLockGpio(void);
+void InitKeyGpio(void);
+void InitReaderGpio(void);
+void DeInitReaderGpio(void);
+void InitSIMSwitchGpio(void);
+void DeInitSIMSwitchGpio(void);
+
+#endif /* __BSP_GPIO_H */

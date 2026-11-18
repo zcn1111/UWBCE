@@ -1,0 +1,40 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __APP_STORE_H
+#define __APP_STORE_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "bsp_store.h"
+
+extern DATAINFLASH g_StatusDatainFlash;
+extern DATAINFLASH g_WarnDatainFlash;
+
+extern uint32_t g_SaveSensorDataPageAddr;
+extern uint32_t g_ReadSensorDataPageAddr;
+
+extern uint32_t g_SaveLoraWarnPageAddr;
+extern uint32_t g_SaveLoraWarnPageOff;
+extern uint32_t g_ReadLoraWarnPageAddr;
+extern uint32_t g_ReadLoraWarnPageOff;
+extern bool g_HaveLoraWarnInFlash;
+
+extern uint32_t g_SaveUploadStatusDataPageAddr;
+extern uint32_t g_SaveUploadStatusDataPageOff;
+extern uint32_t g_ReadUploadStatusDataPageAddr;
+extern uint32_t g_ReadUploadStatusDataPageOff;
+extern bool g_HaveUploadStatusDataInFlash;
+
+typedef struct{
+	uint8_t warnbag[16];
+	uint32_t sensordataaddr;
+}WARNDATA;
+extern WARNDATA g_LoraWarnData;
+
+extern uint8_t g_HaveNewLoraWarn;
+
+void InitFlashPar(void);
+void GenerateStatus(uint8_t flg);
+void GenerateWarnData(OBJECT_INFO obj);
+
+#endif /* __APP_STORE_H */
+

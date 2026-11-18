@@ -1,0 +1,2750 @@
+
+#include "bsp.h"
+#include "main.h"
+
+uint8_t 	CelluarStep;
+uint8_t 	g_ATWaitFlag;
+uint8_t 	g_ATSendCnt;
+uint8_t 	g_Signal;
+uint8_t 	g_OperatorType;			//1-移动 2-联通 3-电信
+uint8_t 	g_ActType;				//1-2G 2-3G 3-4G
+uint8_t 	g_NeedPushDatatoServer;
+uint8_t 	g_DataNetOk;
+uint8_t 	g_UpdateNetOk;
+uint8_t 	g_UploadNetOk;
+uint8_t		g_CelluarSleep;
+uint8_t		g_ReconnetcFlag;
+uint8_t		g_PowerOffEc20CmdFlag;
+uint8_t		g_NeedRebootEc20Flag;
+uint8_t		g_QisendStep;
+uint8_t 	g_SendToSocketFailCount;
+uint32_t 	g_ATWaitDelay;
+uint32_t	g_PowerOffEc20CmdDelay;
+uint32_t	g_InSleepModeDelay;
+int 		g_SocketId;
+
+uint8_t		g_ICCID[2][10];
+
+
+const uint8_t TotalControlMobleNo[2][6]={{0x13,0x75,0x31,0x24,0x37,0x2F},{0x13,0x75,0x31,0x20,0x58,0x3F}};
+uint8_t 	g_IPBuffer[3][4] = {{211,142,31,152},{211,142,31,152},{211,142,31,152}};//0-远程升级IP，1-远程转储IP，2-数据IP
+uint16_t 	g_PortNo[3] = {2021,2029,2020};
+uint8_t 	g_DataIPBack[4];      //数据IP备份
+uint16_t 	g_DataPortBack;      //数据端口号备份
+
+uint8_t 	g_CmdBuf[3072];
+uint8_t 	g_D6Phone[6];
+uint8_t 	tmpsendbuf[560];
+/***** 远程数据转储**********************************************************/
+uint16_t 	g_ZC_StartAddr;                  /* 数据转储开始地址 */
+uint16_t 	g_ZC_PageLength;                 /* 数据转储页长度 */
+uint32_t 	g_FileSize;                      /* 数据转储文件大小 */
+uint32_t 	g_FileOffset;                    /* 数据转储文件偏移地址 */
+uint32_t 	g_PageOffset;                    /* 数据转储页偏移地址 */
+
+/***** 远程升级**************************************************************/
+uint8_t 	g_ShouldJumpToStartFlag;
+uint8_t 	g_RemoteUpdateGCFlag; 		//=1建立升级socket =2获取升级类型 =4获取升级数据包
+uint16_t 	g_RemoteUpdatePackNo;
+uint16_t 	g_RemoteUpdatePackTotal;
+uint8_t 	g_UpdateType;	//0-全量升级 1-增量升级
+uint8_t 	g_UartUPBuf[512];
+uint8_t 	g_checkbuf[512];
+uint8_t 	MajorVersion;                     //主版本号   
+uint8_t 	MinorVersion;                     //次版本号  
+uint8_t		LastMajorVersion = 0;
+uint8_t		LastMinorVersion = 0;
+uint32_t 	LastTotalBagNum;                //上次的包总数 
+bool 		g_UpdateSuc;
+/*****************************************************************************/
+uint8_t 	g_NetAskTime;
+uint8_t 	g_NetAskTimeCnt;
+uint8_t 	g_SendIdleBag;
+uint8_t 	g_ResendIdleBagTimes;
+uint8_t 	g_B9SendFlag;
+uint8_t 	g_SendToNetFailCount;
+bool 		g_ChangeMyMobileNumFlag;
+uint8_t 	g_ChangeMobileNumStep;
+uint8_t 	g_CheckMobileNumStep;
+uint8_t		g_ChangeIPFlag;
+uint8_t		g_CtrlMsgFlag;
+uint8_t 	g_DtuReturnMyMobileFlag;
+uint8_t 	g_AskAuthorityFlag;
+uint8_t 	g_AskPowerControlFlag;    //返回电源控制信息
+uint8_t 	g_ResetPowerFlag;         //重启电源标识  1-重启485 2-重启系统 3-重启DTU		-99RTC时间连续错误重启
+uint8_t 	g_NetAskIPAndPortFlag;
+uint8_t		g_AskIDFlag;
+uint8_t 	g_AddWhiteName;			//通过网络增加白名单
+uint8_t 	g_DelWhiteName;			//通过网络删减白名单
+DATETIME 	g_ModifyWhiteNameTime;
+uint8_t 	g_ModifyWhiteNameID[6];
+uint8_t 	g_AskWhiteName;			//通过网络索要白名单
+uint8_t 	g_AskUnit;
+uint32_t 	g_AskNamePageAddr;
+uint16_t 	g_AskNamePageOff;
+uint8_t 	g_EraseType;
+uint8_t 	g_AddUnit;				//通过网络设置授权单位
+uint8_t 	g_DelUnit;				//
+uint8_t		g_EraseIDFlag;
+uint8_t 	g_AskSysParFlag;
+uint8_t 	g_AskKeySysParFlag;
+AuthorizedUnit g_ModifyUnitbuf;
+uint16_t g_WhiteNameSendCnt;                /* 发送白名单的次数*/
+
+
+char		g_AskATCmd[80];
+char		g_ReturnATCmd[140];
+uint8_t		g_ReturnATCmdLen;
+uint8_t		g_AskATCmdFlag;
+uint32_t	g_AskATCmdDelay;
+
+bool 		g_Send5ASuc;
+bool 		g_SendD6Suc;
+
+uint32_t 	g_Send5ABagNo;	//发送正常数据包序号
+uint32_t 	g_SendD6BagNo;	//发送D6数据包序号
+uint32_t 	g_RecD6BagNo;	//接收D6数据包序号
+uint32_t 	g_NetAskTimeDelay;
+uint32_t 	g_IdleDelay;
+uint32_t 	g_SendB9Delay;
+uint32_t 	g_SendD6Delay;
+/****************************************************************************
+函数名称: void SendAT(char* s)
+功能描述: 
+参数输入: 
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+*****************************************************************************/
+void InitNet(void)
+{
+	g_DataNetOk = 0;
+	g_NetAskTime = 1;
+	g_NetAskTimeCnt = 6;
+	g_Signal = 0;
+	CelluarStep = STA_PWR_ON;
+	g_Send5ASuc = true;
+	g_SendD6Suc = true;
+	g_SendIdleBag = 0;
+	g_SendToNetFailCount = 0;
+	g_NeedRebootEc20Flag = 0;
+	g_ATSendCnt = 0;
+}
+
+/****************************************************************************
+函数名称: void SendAT(char* s)
+功能描述: 
+参数输入: 
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+*****************************************************************************/
+void SendAT(char* s)
+{
+	uint16_t len;
+	
+	if(g_CelluarSleep == 1)
+	{
+		g_CelluarSleep = 0;
+		CELLUAR_DTR_RESET();
+		delay_ms(200);
+	}
+	memset(g_TxBufLP,0,sizeof(g_TxBufLP));
+	len = strlen(s);
+	memcpy(g_TxBufLP,s,len);
+	UartSend(&g_LPUart,g_TxBufLP,len);		
+}
+
+
+/****************************************************************************
+函数名称: void SendDatatoSocket_SENDEX(uint8_t id,uint8_t *data,uint16_t datalen)
+功能描述: 发送数据到Socket缓存
+参数输入: id-socket id *data-数据 datalen-数据长度
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+*****************************************************************************/
+void SendDatatoSocket_SENDEX(uint8_t id,uint8_t *data,uint16_t datalen)
+{
+	uint8_t tmp;
+	uint8_t len;
+	uint16_t i;
+	
+	if(g_CelluarSleep == 1)
+	{
+		g_CelluarSleep = 0;
+		CELLUAR_DTR_RESET();
+		delay_ms(200);
+	}
+					
+	memset(g_TxBufLP,0,sizeof(g_TxBufLP));
+	
+	sprintf((char*)g_TxBufLP,"%s%d,\"",QiSendEx,id);
+	len = strlen((char*)g_TxBufLP);
+	
+	for(i=0;i<datalen;i++)
+	{
+		tmp = data[i]>>4;
+		g_TxBufLP[len+2*i] = Hex2Asc(tmp);
+		tmp = data[i]&0x0F;
+		g_TxBufLP[len+2*i+1] = Hex2Asc(tmp);
+	}
+	g_TxBufLP[len+2*datalen] = '"';
+	g_TxBufLP[len+2*datalen+1] = 0x0D;
+	UartSend(&g_LPUart,(uint8_t*)&g_TxBufLP,len+2*datalen+2);
+	CelluarStep = STA_SENDEX_TO_SOCKET;
+	g_ATWaitFlag = 1;
+	g_ATWaitDelay = 3000;
+	g_SocketId = id;
+	g_ShouldEnterLowpowerDelay = TIM2->CNT;
+	g_LedGToggleFlag = 1;
+	g_LedGToggleDelay = TIM2->CNT;
+}
+
+/******************************************************************
+函数名称: PushSocket(uint8_t id)
+功能描述: socket缓存发送到服务器
+参数输入: id-socket id
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendDatatoSocket_SEND(uint8_t *data,uint16_t datalen)
+{
+	if(g_CelluarSleep == 1)
+	{
+		g_CelluarSleep = 0;
+		CELLUAR_DTR_RESET();
+		delay_ms(200);
+	}
+					
+	memset(g_TxBufLP,0,sizeof(g_TxBufLP));
+	
+	memcpy(g_TxBufLP,data,datalen);
+	UartSend(&g_LPUart,(uint8_t*)&g_TxBufLP,datalen);
+
+	CelluarStep = STA_SEND_TO_SOCKET;
+	g_ATWaitFlag = 1;
+	g_ATWaitDelay = 3000;
+	g_SocketId = 0;
+	g_SendD6Suc = false;
+	g_SendD6Delay = TIM2->CNT;
+	g_ShouldEnterLowpowerDelay = TIM2->CNT;
+}
+
+/****************************************************************************
+函数名称: void Login(void)
+功能描述: 登陆 发送D2
+参数输入: 
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+*****************************************************************************/
+void Login(void)
+{	
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0xD2;
+	memcpy(tmpsendbuf+1,g_MobileInFlash.mobileno[4],6);	
+	if(g_SelSIMFlag == SIM1ONLY)
+		tmpsendbuf[6] = (tmpsendbuf[6]&0xF0);
+	else
+		tmpsendbuf[6] = (tmpsendbuf[6]&0xF1);
+	if(g_SelSIMFlag == SELSIM1)
+		memcpy(tmpsendbuf+7,&g_ICCID[SELSIM1][2],8);
+	else
+		memcpy(tmpsendbuf+7,&g_ICCID[SELSIM2][2],8);
+	tmpsendbuf[15] = CheckSum(15,tmpsendbuf);	
+	
+	SendDatatoSocket_SENDEX(datasocketid,tmpsendbuf,16);
+	g_ShouldEnterLowpowerDelay = TIM2->CNT;
+}
+
+/******************************************************************
+函数名称: void SendIdleBag(void)
+功能描述: 心跳包
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendIdleBag(void)
+{
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0x00;
+	TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+	memcpy(tmpsendbuf+1,(uint8_t*)&g_BCDTime,5);
+	if(CheckNumIsBCD((uint8_t*)g_MobileInFlash.mobileno[4],5) == true)
+	{
+		memcpy(tmpsendbuf+6,g_MobileInFlash.mobileno[4],6);
+		if(g_SelSIMFlag == SIM1ONLY)
+			tmpsendbuf[11] = (tmpsendbuf[11]&0xF0);
+		else
+			tmpsendbuf[11] = (tmpsendbuf[11]&0xF1);
+	}
+	memcpy(tmpsendbuf+12,g_VersionHex,2);
+	SendDatatoSocket_SENDEX(datasocketid,tmpsendbuf,14);
+}
+
+/******************************************************************
+函数名称: void SendRecSuc(void)
+功能描述: 向服务器返回接收成功指令
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendRecSuc(void)
+{
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	tmpsendbuf[0] = 0xDF;
+	tmpsendbuf[1] = g_RecD6BagNo&0xFF;
+	tmpsendbuf[2] = (g_RecD6BagNo>>8)&0xFF;
+	tmpsendbuf[3] = (g_RecD6BagNo>>16)&0xFF;
+	tmpsendbuf[4] = (g_RecD6BagNo>>24)&0xFF;
+	tmpsendbuf[5] = CheckSum(5,tmpsendbuf);	
+	
+	SendDatatoSocket_SENDEX(datasocketid,tmpsendbuf,6);	
+}
+
+/******************************************************************
+函数名称: Bool SendD6Data(void)
+功能描述: 发送D6数据
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendD6Data(uint8_t *data, uint8_t type)
+{
+    uint8_t i,cmpbuf[5],tmpmobile[6],tmpmobile1[6],gsm7bit[140],tmptime[6];
+
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+    memset(cmpbuf,0,sizeof(cmpbuf));
+	
+	tmpsendbuf[0] = 0xD6;
+	memcpy(tmpsendbuf + 1,g_D6Phone,6);	//接收手机号
+	tmpsendbuf[7] = g_SendD6BagNo;						//D6数据包
+	if(g_MobileInFlash.Crc16 == CRC16((uint8_t*)&g_MobileInFlash,sizeof(g_MobileInFlash)-2))
+    {
+        if((CheckNumIsBCD((uint8_t*)g_MobileInFlash.mobileno[4],5) == true)&&
+            (memcmp((uint8_t*)g_MobileInFlash.mobileno[4],cmpbuf,5)!=0))
+		{
+			memcpy(tmpmobile1,g_MobileInFlash.mobileno[4],6);
+			if(g_SelSIMFlag == SIM1ONLY)
+				tmpmobile1[5] = (tmpsendbuf[5]&0xF0);
+			else
+				tmpmobile1[5] = (tmpsendbuf[5]&0xF1);
+			for(i=0;i<6;i++)
+			{
+				tmpmobile[i]=CharSwap(tmpmobile1[i]);	//手机号每个字节高低位交换
+			}
+			for( i = 0 ; i < 6  ; i++ )
+			{
+				Bcd2Asc(tmpmobile[i],tmpsendbuf+8+2*i);				//转换ASCII码
+			}
+			if(type == D67bit)
+			{
+				memset(tmpsendbuf+20,0x30,4);							//协议标识为0，编码方式为00-7bit					
+				TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+				tmptime[0] = CharSwap(g_BCDTime.year);
+				tmptime[1] = CharSwap(g_BCDTime.month);
+				tmptime[2] = CharSwap(g_BCDTime.date);
+				tmptime[3] = CharSwap(g_BCDTime.hour);
+				tmptime[4] = CharSwap(g_BCDTime.minute);
+				tmptime[5] = CharSwap(g_BCDTime.second);
+				for( i = 0 ; i < 6  ; i++ )
+				{
+					Bcd2Asc(tmptime[i],tmpsendbuf+24+2*i);		//年月日时分秒
+				}
+				i=0;														//时区
+				Bcd2Asc(i,tmpsendbuf+36);
+				i=160;														//短信长度
+				Bcd2Asc(i,tmpsendbuf+38);
+				
+				for( i = 0 ; i < 80  ; i++ )								//80字节转换ASCII码-160
+				{
+					Bcd2Asc(*data,g_tmpBuf+2*i);
+					data++;
+				}
+				gsmEncode7bit((char*)g_tmpBuf,gsm7bit,160);					//转换7位编码-140
+				for( i = 0 ; i < 140  ; i++ )								//140字节转换ASCII码-280
+				{
+					Bcd2Asc(gsm7bit[i],tmpsendbuf+40+2*i);
+				}
+				tmpsendbuf[320] = CheckSum(320,tmpsendbuf);
+				CelluarStep = STA_SEND_TO_SOCKET;
+				g_QisendStep = 1;
+			}
+			else
+			{
+				memset(tmpsendbuf+20,0x30,2);							//协议标识为0
+				tmpsendbuf[22] = 0x30;									//编码方式为04-8bit
+				tmpsendbuf[23] = 0x34;
+				TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+				tmptime[0] = CharSwap(g_BCDTime.year);
+				tmptime[1] = CharSwap(g_BCDTime.month);
+				tmptime[2] = CharSwap(g_BCDTime.date);
+				tmptime[3] = CharSwap(g_BCDTime.hour);
+				tmptime[4] = CharSwap(g_BCDTime.minute);
+				tmptime[5] = CharSwap(g_BCDTime.second);
+				for( i = 0 ; i < 6  ; i++ )
+				{
+					Bcd2Asc(tmptime[i],tmpsendbuf+24+2*i);		//年月日时分秒
+				}
+				i=0;														//时区
+				Bcd2Asc(i,tmpsendbuf+36);
+				i=140;														//短信长度
+				Bcd2Asc(i,tmpsendbuf+38);
+				
+				for( i = 0 ; i < 140  ; i++ )								//140字节转换ASCII码-280
+				{
+					Bcd2Asc(data[i],tmpsendbuf+40+2*i);
+				}
+				tmpsendbuf[320] = CheckSum(320,tmpsendbuf);
+				CelluarStep = STA_SEND_TO_SOCKET;
+				g_QisendStep = 1;
+			}
+		}
+	}
+	g_LedGToggleFlag = 1;
+	g_LedGToggleDelay = TIM2->CNT;
+	
+}
+
+/******************************************************************
+函数名称: Bool NetSendB9Data(void)
+功能描述: 发送B9数据
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+bool SendB9Data(void)
+{
+    uint8_t cmpbuf[5];
+
+    memset(cmpbuf,0,sizeof(cmpbuf));
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0x5A;
+    tmpsendbuf[1] = 0xA5;
+    tmpsendbuf[2] = 0x20;
+    tmpsendbuf[3] = 0; 
+	if(ReadRecordFromFlash(&g_StatusDatainFlash,g_tmpBuf) == 1)
+	{
+		memcpy(tmpsendbuf+4,g_tmpBuf,g_StatusDatainFlash.datalen);
+		
+		tmpsendbuf[36] = g_Send5ABagNo&0xFF;
+		tmpsendbuf[37] = (g_Send5ABagNo>>8)&0xFF;
+		tmpsendbuf[38] = (g_Send5ABagNo>>16)&0xFF;
+		tmpsendbuf[39] = (g_Send5ABagNo>>24)&0xFF;
+		tmpsendbuf[40] = CheckSum(40,tmpsendbuf);
+
+		SendDatatoSocket_SENDEX(datasocketid,tmpsendbuf,41);
+		return true;
+	}    
+	return false;
+}
+
+/******************************************************************
+函数名称: void NetGetUpdateType(void)
+功能描述: 向服务器请求升级类型
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void GetUpdateType(void)
+{
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0x5A;
+	tmpsendbuf[1] = 0xA5;
+	tmpsendbuf[2] = 0x10;
+	tmpsendbuf[3] = 0x00;
+	tmpsendbuf[4] = 0xEA;
+	
+	memcpy(tmpsendbuf+5,g_MobileInFlash.mobileno[4],6);
+	memcpy(tmpsendbuf+11,(uint8_t*)&g_UpdateCodePageTotal,3);	
+	tmpsendbuf[14] = g_VersionHex[0];
+	tmpsendbuf[15] = g_VersionHex[1];	
+	tmpsendbuf[19] = CheckSum(15,tmpsendbuf+4);	
+	tmpsendbuf[24] = CheckSum(24,tmpsendbuf);		
+	SendDatatoSocket_SENDEX(updatesocketid,tmpsendbuf,25);
+}
+
+
+/******************************************************************
+函数名称: void SendUpdateBag(void)
+功能描述: 向服务器请求升级数据包
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendUpdateBag(void)
+{
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0x5A;
+	tmpsendbuf[1] = 0xA5;
+	tmpsendbuf[2] = 0x20;
+	tmpsendbuf[3] = 0x00;
+	tmpsendbuf[4] = 0xEF;	
+	
+	memcpy(tmpsendbuf+5,g_MobileInFlash.mobileno[4],6);
+	memcpy(tmpsendbuf+11,(uint8_t*)&g_UpdateCodePageTotal,3);
+	tmpsendbuf[14] = ( g_UpdateCodePageTotal.programpage & 0xff );		
+	tmpsendbuf[15] = (( g_UpdateCodePageTotal.programpage >>8 ) & 0xff );	
+	tmpsendbuf[16] = ( g_RemoteUpdatePackNo & 0xff );		
+	tmpsendbuf[17] = (( g_RemoteUpdatePackNo >>8 ) & 0xff );	
+	if(g_UpdateType == 0xDC)
+		tmpsendbuf[18] = 0;	
+	else
+		tmpsendbuf[18] = g_UpdateType;
+	if(g_UpdateType == 1)
+	{
+		tmpsendbuf[19] = g_VersionHex[0];
+		tmpsendbuf[20] = g_VersionHex[1];
+	}
+	tmpsendbuf[35] = CheckSum(31,tmpsendbuf+4);	
+	tmpsendbuf[40] = CheckSum(40,tmpsendbuf);		
+
+	SendDatatoSocket_SENDEX(updatesocketid,tmpsendbuf,41);
+}
+
+/******************************************************************
+函数名称: void NetSendUpdateSuc(void)
+功能描述: 向服务器发送升级成功
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendUpdateSuc(uint8_t type)
+{
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	tmpsendbuf[0] = 0x5A;
+	tmpsendbuf[1] = 0xA5;
+	tmpsendbuf[2] = 0x10;
+	tmpsendbuf[3] = 0x00;
+	tmpsendbuf[4] = 0xE0;
+	memcpy(tmpsendbuf+5,g_MobileInFlash.mobileno[4],6);
+	TimeHexToBcd(&g_BCDTime,(uint8_t*)&g_SysTime);
+	memcpy(tmpsendbuf+11,(uint8_t*)&g_BCDTime,5);
+	tmpsendbuf[16] = type;		
+	tmpsendbuf[19] = CheckSum(15,tmpsendbuf+4);	
+	tmpsendbuf[20] = g_Send5ABagNo&0xFF;
+	tmpsendbuf[21] = (g_Send5ABagNo>>8)&0xFF;
+	tmpsendbuf[22] = (g_Send5ABagNo>>16)&0xFF;
+	tmpsendbuf[23] = (g_Send5ABagNo>>24)&0xFF;
+	tmpsendbuf[24] = CheckSum(24,tmpsendbuf);		
+	SendDatatoSocket_SENDEX(updatesocketid,tmpsendbuf,25);
+}
+
+/******************************************************************
+函数名称: void NetSendZhuanChuData(void)
+功能描述: 向服务器发送转储数据包
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void SendZhuanChuData(void)
+{
+	uint8_t FileName[13];
+
+	uint32_t g_FileOffset,packlen;
+	
+	packlen = 512;
+	g_FileOffset = g_PageOffset*512;
+	memset(tmpsendbuf,0,sizeof(tmpsendbuf));
+	
+	tmpsendbuf[0] = 0x5A;
+	tmpsendbuf[1] = 0xA5;
+	tmpsendbuf[2] = 0x20;
+	tmpsendbuf[3] = 0x02;
+	tmpsendbuf[4] = 0xB0;
+	memcpy( tmpsendbuf + 5 , g_MobileInFlash.mobileno[4] , 6 ); //  
+	YearToStr(g_SysTime.year,(char*)&FileName);
+    HexTimeToStr(g_SysTime.month,(char*)&FileName+4);  
+	HexTimeToStr(g_SysTime.date,(char*)&FileName+6);   	
+	memcpy(FileName+8,".txt",4);
+	FileName[0]=0x32;
+	FileName[12]=0;
+	memcpy(tmpsendbuf + 11,FileName,12);
+	
+	tmpsendbuf[23] = ( g_FileSize & 0xff ); //  
+	tmpsendbuf[24] = (( g_FileSize >> 8) & 0xff ); //  
+	tmpsendbuf[25] = (( g_FileSize >> 16) & 0xff ); //  
+	tmpsendbuf[26] = (( g_FileSize >> 24) & 0xff ); //  
+	
+	tmpsendbuf[27] =  ( g_FileOffset  & 0xff ); // 
+	tmpsendbuf[28] =  (( g_FileOffset >> 8) & 0xff ); // 
+	tmpsendbuf[29] =  (( g_FileOffset >> 16) & 0xff ); // 
+	tmpsendbuf[30] =  (( g_FileOffset >> 24) & 0xff ); // 
+
+	tmpsendbuf[31] = ( packlen & 0xff ); //
+	tmpsendbuf[32] = (( packlen>> 8 ) & 0xff ); //
+	tmpsendbuf[33] = (( packlen >> 16) & 0xff ); //
+	tmpsendbuf[34] = (( packlen >> 24) & 0xff ); //
+
+	W25qxx_ReadPage(g_tmpBuf,g_ZC_StartAddr+g_PageOffset*2,0,256);
+	W25qxx_ReadPage(g_tmpBuf,g_ZC_StartAddr+g_PageOffset*2+1,0,256);
+	memcpy( tmpsendbuf + 35 , g_tmpBuf , 512 );
+	tmpsendbuf[547] = CheckSum( 543 , tmpsendbuf + 4 );
+	tmpsendbuf[548] = g_Send5ABagNo&0xff;
+	tmpsendbuf[549] = (g_Send5ABagNo>>8)&0xff;
+	tmpsendbuf[550] = (g_Send5ABagNo>>16)&0xff;
+	tmpsendbuf[551] = (g_Send5ABagNo>>24)&0xff;
+	tmpsendbuf[552] = CheckSum(552 , tmpsendbuf);
+	
+	SendDatatoSocket_SEND(tmpsendbuf,553);
+}
+
+/******************************************************************
+函数名称: void ReturnIDtoNet(void)
+功能描述: 向服务器返回ID版本号
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ReturnIDtoNet(void)
+{
+	uint8_t tmpbuf[80];
+	
+    memset(tmpbuf,0,sizeof(tmpbuf));
+
+    tmpbuf[0] = 0xCF;
+	tmpbuf[1] = 0x80;	
+	tmpbuf[2] = 0x0B;
+	tmpbuf[3] = 0x01;
+	memcpy(tmpbuf+36,g_VersionAscii,4);
+	memcpy(tmpbuf+40,g_VersioninFlash.bootversion, 4); 
+    memset(tmpbuf + 40,0,39);	
+	tmpbuf[79] = CheckSum(79,tmpbuf);	
+	SendD6Data(tmpbuf,D67bit);
+}
+
+
+/******************************************************************
+函数名称: void ReturnMobileNoToNet(void)
+功能描述: 向服务器返回控制权限号
+参数输入: 无
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+void ReturnMobileNoToNet(void)
+{
+    uint8_t i,tmpbuf[80];
+
+    memset(tmpbuf,0,sizeof(tmpbuf));
+	
+    memset(tmpbuf,0xA8,6);
+    tmpbuf[6] = 0x01;
+
+    for(i=0;i<2;i++)
+    {
+        memcpy(tmpbuf+7+6*i,g_MobileInFlash.mobileno[i],6);    
+    }
+    memset(tmpbuf+19,0xff,12);                        //路局号和工务段号
+    memset(tmpbuf+31,0,4);            
+    memcpy(tmpbuf+35,g_MobileInFlash.mobileno[4],6);  //本机号
+    memcpy(tmpbuf+41,g_MobileInFlash.mobileno[3],6);  //短信接收号
+    memset(tmpbuf+47,0,33);
+    SendD6Data(tmpbuf,D67bit);
+}
+
+
+/******************************************************************
+函数名称: void ReturnPowerCtlinfotoNet(void)
+功能描述: 向服务器返回电源控制信息
+参数输入: 无
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+void ReturnPowerCtlinfotoNet(void)
+{
+	uint8_t tmpbuf[80];
+	
+    memset(tmpbuf,0,sizeof(tmpbuf));
+	
+    tmpbuf[0] = 0xCF;
+    tmpbuf[1] = 0xFF;
+    tmpbuf[2] = 0x0F;
+	if(g_ResetPowerFlag <= 3)
+	{
+		tmpbuf[3] = g_ResetPowerFlag;
+	}
+    tmpbuf[79] = CheckSum(79,tmpbuf);
+	SendD6Data(tmpbuf,D67bit);
+	
+	g_ResetPowerFlag = 0;
+	WritePowerCtlFlagToFlash(g_ResetPowerFlag);
+}
+
+
+/******************************************************************
+函数名称: void ReturnAddedWhiteNametoNet(void)
+功能描述: 返回白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void ReturnAddedWhiteNametoNet(void)
+{
+    uint8_t data[80];
+
+    memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x08;
+	memcpy(data+3,(uint8_t*)&g_ModifyWhiteNameTime,6);
+    data[9] = 0x01;
+	memcpy(data+10,g_ModifyWhiteNameID,6);
+    data[79] = CheckSum(79,data);
+    SendD6Data(data,D67bit);
+}
+
+/******************************************************************
+函数名称: void ReturnDeletededWhiteNametoNet(void)
+功能描述: 返回白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void ReturnDeletededWhiteNametoNet(void)
+{
+    uint8_t data[80];
+
+    memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x08;
+	memcpy(data+3,(uint8_t*)&g_ModifyWhiteNameTime,6);
+    data[9] = 0x02;
+	memcpy(data+10,g_ModifyWhiteNameID,6);
+    data[79] = CheckSum(79,data);
+    SendD6Data(data,D67bit);
+}
+/******************************************************************
+函数名称: void ReturnWhiteNametoNet(void)
+功能描述: 返回白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void ReturnWhiteNametoNet(void)
+{
+    uint8_t data[80];
+    uint8_t i;
+
+	memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0B;
+	
+	W25qxx_ReadBytes((uint8_t*)&g_Card,g_AskNamePageAddr,sizeof(g_Card));
+	if(g_Card.Flag == 0xAABB)
+	{
+		for(i=0;i<127;i++)
+		{
+			if(g_Card.CardID[i] != 0)
+			{
+				if(i<=125)
+				{
+					data[7+5*i] = (g_Card.CardID[i]>>24)&0xFF;
+					data[7+5*i+1] = (g_Card.CardID[i]>>16)&0xFF;
+					data[7+5*i+2] = (g_Card.CardID[i]>>8)&0xFF;
+					data[7+5*i+3] = g_Card.CardID[i]&0xFF;
+					data[7+5*i+4] = g_AskUnit;
+				}
+				else
+				{
+					data[3] = 125;
+					data[4] = 0;
+					data[5] = 1;
+					data[6] = 0;
+					break;
+				}
+			}
+			else
+			{
+				data[3] = i+1;
+				data[4] = 0;
+				data[5] = 1;
+				data[6] = 0;
+				break;
+			}
+		}
+	}
+    data[79] = CheckSum(79,data);
+    SendD6Data(data,D67bit);
+    g_WhiteNameSendCnt++;
+}
+/******************************************************************
+函数名称: void ReturnAddedUnittoNet(void)
+功能描述: 返回白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void ReturnAddedUnittoNet(void)
+{
+    uint8_t data[80];
+
+	memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0A;
+	data[3] = 0x01;	
+    memcpy(data+4,(uint8_t*)&g_ModifyUnitbuf.CardID,4);
+	data[8] = (g_ModifyUnitbuf.UnitNo>>8)&0xFF;
+	data[9] = g_ModifyUnitbuf.UnitNo&0xFF;
+	memcpy(data+10,(uint8_t*)&g_ModifyUnitbuf.StartTime,5);
+	memcpy(data+15,(uint8_t*)&g_ModifyUnitbuf.StopTime,5);
+    data[79] = CheckSum(79,data);
+    SendD6Data(data,D67bit);
+}
+
+/******************************************************************
+函数名称: void ReturnDeltededUnittoNet(void)
+功能描述: 返回清除授权信息
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+编写者：hly
+******************************************************************/
+void ReturnDeltededUnittoNet(void)
+{
+    uint8_t data[80];
+
+	memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0A;
+	data[3] = 0x02;
+    memcpy(data+4,(uint8_t*)&g_ModifyUnitbuf.CardID,4);
+	data[8] = (g_ModifyUnitbuf.UnitNo>>8)&0xFF;
+	data[9] = g_ModifyUnitbuf.UnitNo&0xFF;
+	memcpy(data+10,(uint8_t*)&g_ModifyUnitbuf.StartTime,5);
+	memcpy(data+15,(uint8_t*)&g_ModifyUnitbuf.StopTime,5);
+    memset(data+75,0,4);
+    data[79] = CheckSum(79,data);
+    SendD6Data(data,D67bit);
+}
+
+/******************************************************************
+函数名称: void ReturnEraseIDtoNet(void)
+功能描述: 向服务器返回清除白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ReturnEraseIDtoNet(void)
+{
+	uint8_t data[80];
+
+    memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0F;
+	data[3] = g_EraseType;
+    data[79] = CheckSum(79,data);
+	SendD6Data(data,D67bit);
+}
+
+/******************************************************************
+函数名称: void ReturnEraseIDtoNet(void)
+功能描述: 向服务器返回清除白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ReturnSysPartoNet(void)
+{
+	uint8_t data[80];
+
+    memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0D;
+	data[6] = g_SysPar.closelockdelay;
+	data[12] = g_SysPar.keeponlinetime;
+    data[79] = CheckSum(79,data);
+	SendD6Data(data,D67bit);
+}
+
+/******************************************************************
+函数名称: void ReturnEraseIDtoNet(void)
+功能描述: 向服务器返回清除白名单
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ReturnKeySysPartoNet(void)
+{
+	uint8_t data[80];
+
+    memset(data,0,80);
+    data[0] = 0xCF;
+    data[1] = 0x60;
+    data[2] = 0x0E;
+	data[7] = g_SysPar.updatestatustime[0];
+	data[8] = g_SysPar.updatestatustime[1];
+	data[9] = g_SysPar.updatestatuscnt;
+    data[79] = CheckSum(79,data);
+	SendD6Data(data,D67bit);
+}
+/******************************************************************
+函数名称: void ReturnAskATCmdtoNet(void)
+功能描述: 向服务器返回ID版本号
+参数输入: 无
+参数输出: 
+返  回  值: 无
+其      他: 无
+******************************************************************/
+void ReturnAskATCmdtoNet(void)
+{
+	uint8_t data[140],cmdlen;
+
+    memset(data,0,140);
+    data[0] = 0xCF;
+    data[1] = 0x10;
+    data[2] = 0x01;
+	cmdlen = strlen(g_AskATCmd);
+	memcpy(data+3,g_AskATCmd,cmdlen);
+	data[3+cmdlen] = 0x0D;
+	data[4+cmdlen] = 0x0A;
+	if(cmdlen+2+g_ReturnATCmdLen > 136)
+		memcpy(data+5+cmdlen,g_ReturnATCmd,136-cmdlen-2);
+	else
+		memcpy(data+5+cmdlen,g_ReturnATCmd,g_ReturnATCmdLen);
+    data[139] = CheckSum(139,data);
+	SendD6Data(data,D68bit);
+}
+
+/******************************************************************
+函数名称: void ControlMsg(void)
+功能描述: 控制信息
+参数输入: 无
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+void ControlMsg(void)
+{
+	if(g_UpdateCodeTypeErrorFlag == 1)
+	{
+		SendUpdateBag();
+		g_UpdateCodeTypeErrorFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskAuthorityFlag == 1)
+	{
+		ReturnMobileNoToNet();
+		g_AskAuthorityFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskPowerControlFlag == 1)
+	{
+		ReturnPowerCtlinfotoNet();
+		g_AskPowerControlFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskIDFlag == 1)
+	{
+		ReturnIDtoNet();
+		g_AskIDFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AddWhiteName == 1)
+	{
+		ReturnAddedWhiteNametoNet();
+		g_AddWhiteName = 0;
+		g_CtrlMsgFlag = 0;		
+	}
+	else if(g_DelWhiteName == 1)
+	{
+		ReturnDeletededWhiteNametoNet();
+		g_DelWhiteName = 0;	
+		g_CtrlMsgFlag = 0;		
+	}
+	else if(g_AskWhiteName == 1)
+	{
+//		ReturnWhiteNametoNet();
+		g_AskWhiteName = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AddUnit == 1)
+	{
+		ReturnAddedUnittoNet();
+		g_AddUnit = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_DelUnit == 1)
+	{
+		ReturnDeltededUnittoNet();
+		g_DelUnit = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_EraseIDFlag == 1)
+	{
+		ReturnEraseIDtoNet();
+		g_EraseIDFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskSysParFlag == 1)
+	{
+		ReturnSysPartoNet();
+		g_AskSysParFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskKeySysParFlag == 1)
+	{
+		ReturnKeySysPartoNet();
+		g_AskKeySysParFlag = 0;
+		g_CtrlMsgFlag = 0;
+	}
+	else if(g_AskATCmdFlag == 3)
+	{
+		ReturnAskATCmdtoNet();
+		g_AskATCmdFlag = 0;
+		g_CtrlMsgFlag = 0;
+		memset(g_AskATCmd,0,sizeof(g_AskATCmd));
+		memset(g_ReturnATCmd,0,sizeof(g_ReturnATCmd));
+		g_ReturnATCmdLen = 0;
+	}
+}
+
+
+/******************************************************************
+函数名称: Bool SendB9Func(void)
+功能描述: 发送B9数据
+参数输入: 无
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+bool SendB9Func(void)
+{
+    uint8_t tempdata;
+    uint8_t cmpbuf[5];
+	uint32_t tmpoffset;
+
+	memset(cmpbuf,0,sizeof(cmpbuf));
+	
+	if(g_B9SendFlag == 0 || (g_B9SendFlag == 1 && g_Send5ASuc))
+    {
+        if(g_B9SendFlag == 1 && g_Send5ASuc)
+        {
+            tempdata = INDEX_SEND_SUC;
+			W25qxx_WriteByte(tempdata,g_StatusDatainFlash.readflagaddr);
+            g_StatusDatainFlash.needsendcnt--;
+			g_B9SendFlag = 0;
+			if(g_SaveSendEmptyFlag == 1)
+			{
+				g_SaveSendEmptyFlag = 0;
+				tempdata = BAG_SEND_EMPTY;
+				tmpoffset = g_StatusDatainFlash.readflagaddr+g_SaveSendEmptyOffset;
+				W25qxx_WriteByte(tempdata,tmpoffset);
+			}
+        }
+        if(g_StatusDatainFlash.needsendcnt > 0)
+        {           
+			if(SendB9Data() == true)    //发送状态信息
+			{
+				g_B9SendFlag = 1;
+				g_SendB9Delay = TIM2->CNT;
+				g_Send5ASuc = false;
+			}
+			else
+				return true;
+        }
+		 else if(g_StatusDatainFlash.needsendcnt == 0)
+            return true;
+    }
+    else if(g_B9SendFlag == 1 && (!g_Send5ASuc))
+    {
+		if(JudgeSomeDelayInProOk(g_SendB9Delay , Delay20Sec) == true)
+		{
+			if(SendB9Data() == true)    //重新发送状态信息
+			{
+				g_SendB9Delay = TIM2->CNT;
+				g_SendToNetFailCount++;
+			}
+		}
+    }    
+    return false;
+}
+
+/******************************************************************
+函数名称: Bool IdleStatePro(void)
+功能描述: 
+参数输入: 无
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+void IdleStatePro(void)
+{
+	if(g_PowerOffEc20CmdFlag > 0)
+	{
+		if(g_PowerOffEc20CmdFlag == 1 || (g_PowerOffEc20CmdFlag == 2 && JudgeSomeDelayInProOk(g_PowerOffEc20CmdDelay , Delay3Sec) == true))
+		{
+			g_PowerOffEc20CmdFlag = 0;
+			PWR_CELLUAR_DISABLE();
+			g_CelluarPowerOn = 0;
+			g_CelluarPowerOffDelay = TIM2->CNT;
+			if(g_RemoteUpdateGCFlag == 8 || g_RemoteUpdateGCFlag == 9)
+				g_RemoteUpdateGCFlag = 10;
+			else if(g_NeedRebootEc20Flag == 1)
+				CelluarStep = STA_REBOOT;
+		}
+	}
+	else if(g_ChangeMyMobileNumFlag && g_ChangeMobileNumStep == 0 && g_SendD6Suc)
+	{
+		CelluarStep = STA_CLOSE_TCP;
+		g_ChangeMobileNumStep = 1;
+	}
+	else
+	{
+		if(g_ToolGetICCIDStep == 1)
+		{
+			if(g_SelSIMFlag != g_ToolGetICCIDFlag)
+			{
+				g_SelSIMFlag = g_ToolGetICCIDFlag;
+				if(g_SelSIMFlag == SELSIM1)
+					SEL_SIM1_ENABLE();
+				else
+					SEL_SIM2_ENABLE();
+				CelluarStep = STA_PWR_OFF;
+				g_NeedRebootEc20Flag = 1;
+			}
+			else
+				CelluarStep = STA_CHK_ICCID;
+			g_ToolGetICCIDStep = 2;
+		}
+		else if(g_TimeNoAdjustFlag || g_NetAskTime < 2)
+		{//后期需优化
+			if(g_NetAskTime < 2)
+			{
+				Login();	
+				g_NetAskTime = 2;
+				g_NetAskTimeDelay = TIM2->CNT;
+			}
+			else if(g_NetAskTime == 2 && JudgeSomeDelayInProOk(g_NetAskTimeDelay , Delay3Sec) == true)
+			{
+				if(g_NetAskTimeCnt-- > 0)
+					g_NetAskTime = 1;
+				else
+				{
+					CelluarStep = STA_CLOSE_TCP;
+					g_SocketId = datasocketid;
+					g_ReconnetcFlag = 1;
+					g_NetAskTime = 0;
+					g_NetAskTimeCnt = 6;
+				}
+			}
+		}
+		else
+		{
+			if(g_RemoteUpdateGCFlag > 0 && g_UpdateNetOk == 1)
+			{
+				if(g_RemoteUpdateGCFlag == 2)
+				{
+					GetUpdateType();
+					g_RemoteUpdateGCFlag = 3;
+				}
+				else if(g_RemoteUpdateGCFlag == 4)
+				{
+					SendUpdateBag();
+					g_RemoteUpdateGCFlag = 5;
+				}
+				else if(g_RemoteUpdateGCFlag == 6)
+				{
+					CelluarStep = STA_PWR_OFF;	
+					g_PowerOffEc20CmdFlag = 0;					
+					g_RemoteUpdateGCFlag = 7;				
+				}
+				else if(g_RemoteUpdateGCFlag == 10)
+				{
+					if(g_UpdateSuc)
+					{
+						if(g_UpdateType == 1)
+						{
+							g_UpdateType = 0;
+							DiffProgramUserData();
+						}
+						g_UpdateSuc = false;
+						SoftReset();
+					}
+				}
+			}
+			else if(g_DataNetOk == 1)
+			{
+				if(g_CtrlMsgFlag > 0)
+					ControlMsg();
+				else if(g_StatusDatainFlash.needsendcnt > 0)
+					SendB9Func();
+			}			
+		}
+		if(g_CelluarSleep == 1 && JudgeSomeDelayInProOk(g_InSleepModeDelay,g_SysPar.keeponlinetime*Delay1Min) == true && g_LockHeadStatus == 0 && g_LockMGAStatus == 0 && g_CelluarPowerOn == 1)
+		{
+			CelluarStep = STA_PWR_OFF;
+			g_PowerOffEc20CmdFlag = 0;
+		}
+		
+		if(!g_SendD6Suc && JudgeSomeDelayInProOk(g_SendD6Delay,Delay10Sec) == true)
+		{
+			g_SendD6Suc = true;
+			g_CtrlMsgFlag = 0;
+		}
+	}	
+}
+
+/******************************************************************
+函数名称: void SocketRecDataAnalysis(uint8_t *data,int len)
+功能描述: 服务器接收数据解析
+参数输入: *data-数据 len-数据长度
+参数输出: 
+返 回 值: 无
+其    他: 无
+******************************************************************/
+void SocketRecDataAnalysis(uint8_t *data,int len)
+{
+	uint32_t recd6bagno,rec5abagno;
+	DATETIME time;
+	
+	switch(g_CmdBuf[0])
+	{
+		case 0xD2:
+			if(g_CmdBuf[15] == CheckSum(15,g_CmdBuf))
+			{
+				if(0 == memcmp(g_MobileInFlash.mobileno[4],g_CmdBuf+1,5) && ((g_MobileInFlash.mobileno[4][5]&0xF0) == (g_CmdBuf[6]&0xF0)))
+				{					
+					TimeBcdToHex(&time, g_CmdBuf+7);
+					if(( time.year <= 99 )
+						&&( time.month >= 1 )&&( time.month <= 12 )
+						&&( time.date >= 1 )&&( time.date <= 31)
+						&&( time.hour <= 23 )
+						&&( time.minute <= 59)
+						&&( time.second <= 59))
+					{
+						ExRtcWriteTime(&time);
+						ResetRtcAlarm();
+						g_ShouldResetRTCAlarmFlag = 0;
+						g_TimeNoAdjustFlag = false;
+						g_DataNetOk = 1;
+						JudgeEffectiveUnit();
+						g_NetAskTime = 3;
+						g_NetAskTimeCnt = 6;
+					}		
+				}
+				if(g_CelluarSleep == 0)
+				{
+					g_CelluarSleep = 1;
+					CELLUAR_DTR_SET();
+					g_InSleepModeDelay = TIM2->CNT;
+				}
+			}
+			if(g_QisendStep == 0)
+				CelluarStep = STA_STATE_IDLE;
+			break;
+		case 0x5A:
+			{
+				uint8_t tmpmobile[6],typebuf[32],cmpbuf[8],tmp,type,equalflag;
+				uint16_t i,j,k;
+				uint8_t recbuf[300];
+				uint8_t gsmcode7[140];
+				uint8_t cmdbuf[80];
+				uint8_t mobile_rxflag = 0;
+				uint8_t tempmobile[5][6]; 
+				
+				if(g_CmdBuf[1] == 0xA5 && g_CmdBuf[2] == 0x5A && g_CmdBuf[3] == 0xA5 && g_QisendStep == 0)
+				{
+					if(g_CmdBuf[4] == 0xEE)
+					{
+						memset(cmpbuf,0xEE,8);
+						if(memcmp(g_CmdBuf+4, cmpbuf, 8) == 0)
+						{
+							g_RecD6BagNo = g_CmdBuf[20]+(g_CmdBuf[21]<<8)+(g_CmdBuf[22]<<16)+(g_CmdBuf[23]<<24);
+							if(g_CelluarSleep == 1)
+							{
+								g_CelluarSleep = 0;
+								CELLUAR_DTR_RESET();
+								delay_ms(200);
+							}
+							SendRecSuc();
+							memcpy((uint8_t*)&g_UpdateCodePageTotal,g_CmdBuf+12,3);
+							if(g_UpdateCodePageTotal.programtype == CODETYPE)
+							{
+								g_UpdateCodeTypeErrorFlag = 0;
+								g_RemoteUpdateGCFlag = 1;								
+//								g_RemoteZc_UpdateFlag = 2;
+//								g_RemoteLinkDelay = TIM2->CNT;
+//								g_RemoteActionPre = 1;                                  /*进入10 秒DELAY*/
+//								g_NetStatus = 2;
+//								g_RemoteDataOkTimer = DATAOKTIMERS;
+								
+								MajorVersion = g_CmdBuf[15];                        		//主版本号
+								MinorVersion = g_CmdBuf[16];                        		//次版本号
+								LastMajorVersion = MajorVersion;                        	//备份主版本号
+								LastMinorVersion = MinorVersion;                        	//备份次版本号
+								LastTotalBagNum = Get16ValueFrom8Buf(g_CmdBuf,17);  		//包总数
+								NormalUpdateFileSize.FileSize = 0;
+								WriteNormalFileSizeToFlash();
+								DiffUpdateFileSize.FileSize = 0;
+								WriteDiffFileSizeToFlash();
+								CelluarStep = STA_CLOSE_TCP;
+							}						
+						}
+					}
+					else if(g_CmdBuf[4] == 0xDF)
+					{
+						memset(cmpbuf,0xDF,8);
+						if(memcmp(g_CmdBuf+4, cmpbuf, 8) == 0)
+						{
+							g_NetAskTime = 1;
+							g_NetAskTimeCnt = 6;
+							g_DataNetOk = 1;							
+						}
+						CelluarStep = STA_STATE_IDLE;
+					}
+					else
+					{
+						j=0;
+						for(i=5;i<37;i+=2)
+						{
+							tmp = Asc2Hex(g_CmdBuf[i]);
+							tmp = (tmp<<4);
+							tmp += Asc2Hex(g_CmdBuf[i+1]);									
+							typebuf[j++] = tmp;
+						}
+						
+						type = typebuf[7];
+						if(g_CmdBuf[4] == 0xD6 && g_CmdBuf[317] == CheckSum(313,g_CmdBuf+4) && g_SendD6Suc)
+						{
+							g_RecD6BagNo = g_CmdBuf[318]+(g_CmdBuf[319]<<8)+(g_CmdBuf[320]<<16)+(g_CmdBuf[321]<<24);
+							SendRecSuc();
+							g_LedGToggleFlag = 1;
+							g_LedGToggleDelay = TIM2->CNT;
+							memset(cmpbuf,0,6);
+							for(i=0;i<6;i++)
+							{
+								tmpmobile[i]=CharSwap(typebuf[i]);
+							}
+							if(memcmp(tmpmobile,g_MobileInFlash.mobileno[0],6)&& 
+							   memcmp(tmpmobile,g_MobileInFlash.mobileno[1],6)&&
+							   memcmp(tmpmobile,TotalControlMobleNo[0],6)&&
+							   memcmp(tmpmobile,TotalControlMobleNo[1],6))
+							{
+								return;
+							}
+							else
+							{
+//								if(g_SendD6Suc)//判断此时D6发送流程都已完成
+								{
+									memcpy(g_D6Phone,tmpmobile,6);
+									if(type == 0x00)//7bit
+									{
+										g_RecD6BagNo = g_CmdBuf[318]+(g_CmdBuf[319]<<8)+(g_CmdBuf[320]<<16)+(g_CmdBuf[321]<<24);
+										j=0;
+										for(i=37;i<317;i+=2)
+										{
+											tmp = Asc2Hex(g_CmdBuf[i]);
+											tmp = (tmp<<4);
+											tmp += Asc2Hex(g_CmdBuf[i+1]);									
+											gsmcode7[j++] = tmp;
+										}
+										gsmDecode7bit(gsmcode7,(char*)recbuf,140); 
+										
+										for(i=0;i<80;i++)
+										{
+											cmdbuf[i] = (Asc2Hex(recbuf[i*2])<<4) + Asc2Hex(recbuf[i*2+1]);
+										}
+										
+										if(cmdbuf[0] == 0xA8)
+										{
+											memset(cmpbuf,0xA8,6);
+											if(memcmp(cmdbuf, cmpbuf, 6) == 0)
+												mobile_rxflag = 1;
+											else
+												mobile_rxflag = 0;											
+										}
+										else if(cmdbuf[0] == 0xA9)
+										{
+											memset(cmpbuf,0xA9,6);
+											if(memcmp(cmdbuf, cmpbuf, 6) == 0)
+											{
+												if(cmdbuf[9] == 0x08)
+													mobile_rxflag = 3;
+											}
+											
+										}
+										if(mobile_rxflag == 1)
+										{
+											mobile_rxflag = 0;
+											for(k=0;k<5;k++)
+											{
+												for(i=0;i<6;i++)
+												{
+													tempmobile[k][i] = cmdbuf[10+i+8*k];
+												}
+											}
+											if(ReadMobileNoFromFLASH() == true)
+											{
+												;
+											}
+											else
+											{
+												return;
+											}
+											for(i=0;i<5;i++)
+											{
+												if(CheckNumIsBCD((uint8_t*)tempmobile[i],5) == true && memcmp((uint8_t*)tempmobile[i],cmpbuf,5)!=0)
+												{
+													if(i == 4)
+													{
+														if(0 != memcmp(g_MobileInFlash.mobileno[4],tempmobile[i],5) || ((g_MobileInFlash.mobileno[4][5]&0xF0) != (tempmobile[4][5]&0xF0)))
+														{
+															equalflag = 1;
+															tempmobile[i][5] |= 0x0F;
+															memcpy(g_MobileInFlash.mobileno[4],tempmobile[i],sizeof(tempmobile[i]));
+														}
+													}
+													else
+														memcpy(g_MobileInFlash.mobileno[i],tempmobile[i],sizeof(tempmobile[i]));
+												}
+											}   
+											WriteMobileNoToFLASH();										
+											if(ReadMobileNoFromFLASH() == true)
+											{
+												if(equalflag == 1)
+												{
+													equalflag = 0;
+													g_ChangeMyMobileNumFlag = true;
+												}
+												g_GetMyMobileOKFlag = true;
+												g_AskAuthorityFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+												return;
+											}
+											g_AskAuthorityFlag = 0;
+										}
+										else if(mobile_rxflag == 3 && g_CtrlMsgFlag == 0)
+										{                                            
+											mobile_rxflag = 0;
+											if(ReadMobileNoFromFLASH() == true)
+											{
+												g_AskAuthorityFlag = 1;             
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										if(cmdbuf[0] == 0xCF && cmdbuf[1] == 0x80 && cmdbuf[2] == 0x09)
+										{
+											if(0 == g_CtrlMsgFlag)
+											{
+												j = 0;
+												ReadServerInfoPar(); 
+												for( k = 0 ; k < 3 ; k++ )
+												{
+													for( i = 0 ; i < 6 ;i++ )             
+													{
+														tempmobile[k][i] = cmdbuf[3+6*k+i];
+													}
+													if((tempmobile[k][0] == 0 || tempmobile[k][1] == 0 || tempmobile[k][2] == 0 || tempmobile[k][3] == 0) || tempmobile[k][4] == 0 || tempmobile[k][5] == 0||
+														(tempmobile[k][0] == 0xff || tempmobile[k][1] == 0xff || tempmobile[k][2] == 0xff || tempmobile[k][3] == 0xff) || tempmobile[k][4] == 0xff || tempmobile[k][5] == 0xff)
+														;
+													else
+													{
+														j = 1;
+														if( k == 0)                                                 //
+														{
+															memcpy(g_DataIPBack,g_ServerInfo.serveripaddr[2],4);  //
+															g_DataPortBack = g_ServerInfo.serverportaddr[2];
+															memcpy(g_ServerInfo.serveripaddr[2],tempmobile[k],4);
+															g_ServerInfo.serverportaddr[2] = tempmobile[k][4]*100+tempmobile[k][5];
+														}
+														else if(k == 1 )                                            //
+														{
+															memcpy(g_ServerInfo.serveripaddr[0],tempmobile[k],4);
+															g_ServerInfo.serverportaddr[0] = tempmobile[k][4]*100+tempmobile[k][5];
+														}
+														else if( k == 2)                                            //
+														{
+															memcpy(g_ServerInfo.serveripaddr[1],tempmobile[k],4);
+															g_ServerInfo.serverportaddr[1] = tempmobile[k][4]*100+tempmobile[k][5];
+														}
+													}
+												}
+												if(j == 1)
+												{
+													WriteServerInfoPar();
+													if(ReadServerInfoPar() == true)                             //
+													{
+														CmpIPAndPort();                                         //
+														if((memcmp(g_DataIPBack,g_ServerInfo.serveripaddr[2],4) != 0) || (g_DataPortBack != g_ServerInfo.serverportaddr[2]))  //
+														{
+															g_ChangeIPFlag = 1;
+															CelluarStep = STA_CLOSE_TCP;
+														}
+													}
+													g_NetAskIPAndPortFlag = 1;
+													g_CtrlMsgFlag = 1; 
+													g_SendD6Suc = false;
+													g_SendD6Delay = TIM2->CNT;
+												}
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1] == 0xFF && cmdbuf[2] == 0x80 && cmdbuf[3] == 0x09)
+										{
+											if(0 == g_CtrlMsgFlag)
+											{
+												g_NetAskIPAndPortFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1] == 0xFF && cmdbuf[2] == 0x80 && cmdbuf[3] == 0x0B)
+										{
+											if(0 == g_CtrlMsgFlag)
+											{
+												g_AskIDFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}									
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1] == 0x60 && cmdbuf[2] == 0x02)
+										{
+											DATETIME tmptime;
+											
+											g_NetOpenDoorCmd = (cmdbuf[6]<<24)+(cmdbuf[5]<<16)+(cmdbuf[4]<<8)+cmdbuf[3];
+											if(g_NetOpenDoorCmd != g_NetOpenDoorCmdLog[0] && g_NetOpenDoorCmd != g_NetOpenDoorCmdLog[1] && g_NetOpenDoorCmd != g_NetOpenDoorCmdLog[2])
+											{											
+												memcpy((uint8_t*)&g_NetOpenDoorAvlTime,cmdbuf+7,6);												
+												TimeBcdToHex(&tmptime,(uint8_t*)&g_NetOpenDoorAvlTime);
+												
+												if(memcmp(&g_SysTime,&tmptime,12)<0 || memcmp(&cmpbuf,&g_NetOpenDoorAvlTime,6)==0)
+												{
+													g_OpenLockType = 2;
+													LOCK_OPENENABLE();
+													g_OpenLock = true;
+													g_Open1MinDelay = TIM2->CNT;													
+													g_JudgeLockStatusDelay = TIM2->CNT;
+													
+												}
+												else
+												{
+													g_NetOpenDoor = 2;													
+													GnerateFinalStatusRecord();
+													g_NetOpenDoor = 0;
+												}
+												g_NetOpenDoorCmdLog[0] = g_NetOpenDoorCmdLog[1];
+												g_NetOpenDoorCmdLog[1] = g_NetOpenDoorCmdLog[2];
+												g_NetOpenDoorCmdLog[2] = g_NetOpenDoorCmd;
+//												SaveOpenDoorCmd();
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x60 && cmdbuf[2] == 0x08)
+										{//白名单增删
+											if(0 == g_CtrlMsgFlag)
+											{
+												uint16_t tmpno;
+												uint32_t tmpid;
+												uint8_t tmprank;
+												
+												memcpy((uint8_t*)&g_ModifyWhiteNameTime,cmdbuf+3,6);
+												memcpy(g_ModifyWhiteNameID,cmdbuf+10,6);
+												tmpid = (g_ModifyWhiteNameID[0]<<24)+(g_ModifyWhiteNameID[1]<<16)+(g_ModifyWhiteNameID[2]<<8)+g_ModifyWhiteNameID[3];
+												tmpno = g_ModifyWhiteNameID[5]+(g_ModifyWhiteNameID[4]<<8);
+												tmprank = FindUnitRank(tmpno);
+												if(tmprank < 10)
+												{
+													if(cmdbuf[9] == 0x01)
+													{
+														if(SaveUnitWhiteName(tmprank,tmpno,tmpid))
+														{
+															g_AddWhiteName = 1;															
+														}
+													}
+													else if(cmdbuf[9] == 0x02)
+													{
+														DisauthorizeCard(tmprank,tmpno,tmpid);
+														g_DelWhiteName = 1;														
+													}
+												}
+												JudgeEffectiveUnit();
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0xFF && cmdbuf[2] == 0x60&& cmdbuf[3] == 0x05)
+										{//索要白名单
+											if(0 == g_CtrlMsgFlag)
+											{
+												g_AskWhiteName = 1;
+												g_AskUnit = (Asc2Hex(cmdbuf[6])<<4)+Asc2Hex(cmdbuf[7]);
+												g_AskNamePageAddr = FLASH_UNITCARD_START+g_AskUnit*4096;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x60 && cmdbuf[2] == 0x0A)
+										{//授权		
+											if(0 == g_CtrlMsgFlag)
+											{
+												g_ModifyUnitbuf.Flag = 0xAB;
+												memcpy((uint8_t*)&g_ModifyUnitbuf.CardID,cmdbuf+4,4);
+												g_ModifyUnitbuf.UnitNo = (cmdbuf[8]<<8)+cmdbuf[9];
+												memcpy((uint8_t*)&g_ModifyUnitbuf.StartTime,cmdbuf+10,5);
+												memcpy((uint8_t*)&g_ModifyUnitbuf.StopTime,cmdbuf+15,5);
+												g_ModifyUnitbuf.Rank = FindUnitRank(g_ModifyUnitbuf.UnitNo);
+												if(cmdbuf[3] == 1)
+												{
+													SaveAuthorizedUnit(g_ModifyUnitbuf);
+													g_AddUnit = 1;
+													
+												}
+												else
+												{
+													DelAuthorizedUnit(g_ModifyUnitbuf);
+													g_DelUnit = 1;
+												}
+												JudgeEffectiveUnit();
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x60 && cmdbuf[2] == 0x0F)
+										{
+											if(0 == g_CtrlMsgFlag)
+											{
+												g_EraseType = cmdbuf[3];
+												if(g_EraseType == 1)
+												{
+													for(i=FLASH_UNITCARD_START/4096;i<FLASH_UNITCARD_LEN/4096;i++)
+													{
+														W25qxx_EraseSector(i);	
+													}
+												}
+												else if(g_EraseType == 2)
+												{
+													W25qxx_EraseSector(FLASH_UNITINFO_START/4096);	
+													memset((uint8_t*)&g_AuthorizedUnit,0,sizeof(g_AuthorizedUnit));
+												}
+												JudgeEffectiveUnit();
+												g_EraseIDFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+											
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x60 && cmdbuf[2] == 0x0D)
+										{
+											if(0 == g_CtrlMsgFlag)
+											{
+												uint8_t flag = 0;
+												
+												if(cmdbuf[6] ==0)
+												{
+													g_SysPar.closelockdelay = 1;
+												}
+												else if(g_SysPar.closelockdelay != cmdbuf[6])
+												{
+													g_SysPar.closelockdelay = cmdbuf[6];
+													flag = 1;
+												}
+												if(cmdbuf[12] ==0)
+												{
+													g_SysPar.keeponlinetime = 3;
+												}
+												else if(g_SysPar.keeponlinetime != cmdbuf[12])
+												{
+													g_SysPar.keeponlinetime = cmdbuf[12];
+													flag = 1;
+												}
+												if(flag == 1)
+												{
+													g_SysPar.crc16 = CRC16((uint8_t*)&g_SysPar,sizeof(g_SysPar)-2);
+													WriteSysPar();
+													flag = 0;
+												}
+												g_AskSysParFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF  && cmdbuf[1]== 0xFF && cmdbuf[2] == 0x60&& cmdbuf[3] == 0x0D)
+										{
+											if(g_CtrlMsgFlag == 0)
+											{
+												g_AskSysParFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x60 && cmdbuf[2] == 0x0E)
+										{
+											if(g_CtrlMsgFlag == 0)
+											{
+												uint8_t hour,minute,cnt;
+												uint8_t res=0;
+												
+												if(CheckNumIsBCD(cmdbuf+7,2) == true)
+												{
+													hour = BCDToHex(cmdbuf[7]);
+													minute = BCDToHex(cmdbuf[8]);
+													
+													if(hour <= 23 && minute <= 59)
+													{
+														if(g_SysPar.updatestatustime[0]!= hour || g_SysPar.updatestatustime[1] != minute)
+														{
+															g_SysPar.updatestatustime[0] = cmdbuf[7];
+															g_SysPar.updatestatustime[1] = cmdbuf[8];
+															res = 1;
+														}
+													}
+												}
+												cnt = cmdbuf[9];
+												if(cnt >0 && 24%cnt == 0 && g_SysPar.updatestatuscnt != cnt)
+												{
+													g_SysPar.updatestatuscnt = cnt;
+													res = 1;
+												}
+												if(res == 1)
+												{
+													g_SysPar.crc16 = CRC16((uint8_t*)&g_SysPar,sizeof(g_SysPar)-2);
+													WriteSysPar();
+													UpdateAlarmPar();
+													ResetRtcAlarm();
+													res = 0;
+												}
+												g_AskKeySysParFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF  && cmdbuf[1]== 0xFF && cmdbuf[2] == 0x60&& cmdbuf[3] == 0x0E)
+										{
+											if(g_CtrlMsgFlag == 0)
+											{
+												g_AskKeySysParFlag = 1;
+												g_CtrlMsgFlag = 1;
+												g_SendD6Suc = false;
+												g_SendD6Delay = TIM2->CNT;
+											}
+										}
+										else if(cmdbuf[0] == 0xCF && cmdbuf[1]== 0x10 && cmdbuf[2] == 0x00)
+										{
+											if(0== g_CtrlMsgFlag)
+											{
+												for(i=3;i<79;i++) 
+												{
+													if(cmdbuf[i] == 0x0D && cmdbuf[i+1] == 0x0A)
+													{
+														memcpy(g_AskATCmd,cmdbuf+3,i+1);
+														g_AskATCmdFlag = 1;	
+														g_CtrlMsgFlag = 1;														
+														g_AskATCmdDelay = TIM2->CNT;
+														CelluarStep = STA_SENDEX_TO_SOCKET;
+														g_SendD6Suc = false;
+														g_SendD6Delay = TIM2->CNT;
+														break;
+													}
+												}
+												
+											}												
+										}
+										
+									}
+								}
+							}
+						}
+					
+					}
+				}
+				else if(g_CmdBuf[1] == 0xA5 && g_CmdBuf[2] == 0x06 && g_CmdBuf[3] == 0x00)
+				{
+					if(g_CmdBuf[4] == 0xD8 && g_CmdBuf[10] == CheckSum(10,g_CmdBuf))
+					{
+						rec5abagno = g_CmdBuf[5]+(g_CmdBuf[6]<<8)+(g_CmdBuf[7]<<16)+(g_CmdBuf[8]<<24);
+						if(rec5abagno == g_Send5ABagNo)//判断包序号、是否发送成功
+						{
+							g_Send5ASuc = true;
+							g_Send5ABagNo++;
+							g_SendToNetFailCount = 0;
+							if(g_CelluarSleep == 0)
+							{
+								g_CelluarSleep = 1;
+								CELLUAR_DTR_SET();
+								g_InSleepModeDelay = TIM2->CNT;
+							}
+//							g_LedGToggleFlag = 0;
+						}
+					}
+					if(g_QisendStep == 0)
+						CelluarStep = STA_STATE_IDLE;
+				}
+				else if(g_CmdBuf[1] == 0xA5 && g_CmdBuf[2] == 0x10 && g_CmdBuf[3] == 0x00 && g_QisendStep == 0)
+				{
+					if(g_CmdBuf[4] == 0xEB && g_CmdBuf[24] == CheckSum(24,g_CmdBuf))
+					{
+						memcpy((uint8_t*)&g_UpdateCodePageTotal,g_CmdBuf+11,3);							
+						if(g_CmdBuf[14] == g_VersionHex[0] && g_CmdBuf[15] == g_VersionHex[1])
+						{
+							g_UpdateType = g_CmdBuf[16];
+							g_UpdateCodePageTotal.programpage = Get16ValueFrom8Buf(g_CmdBuf,17);
+							g_RemoteUpdateGCFlag = 4;
+						}
+					}
+					CelluarStep = STA_STATE_IDLE;
+				}
+			}
+			break;
+		case 0xD7:
+			if(g_CmdBuf[8] == CheckSum(8,g_CmdBuf))
+			{
+				recd6bagno = g_CmdBuf[7];
+				if(recd6bagno == g_SendD6BagNo)//判断包序号、是否发送成功
+				{
+					g_SendD6Suc = true;
+					if(g_CelluarSleep == 0)
+					{
+						g_CelluarSleep = 1;
+						CELLUAR_DTR_SET();
+						g_InSleepModeDelay = TIM2->CNT;
+					}
+//					g_LedGToggleFlag = 0;
+				}
+			}
+			CelluarStep = STA_STATE_IDLE;
+			break;
+		case 0xDC:
+			{
+				uint8_t tmpbuf1[3];
+				
+				memset(tmpbuf1,0xDC,3);
+
+				if(memcmp(g_CmdBuf+1,tmpbuf1,3)==0)
+				{
+					if(g_CmdBuf[511] == CheckSum(511,g_CmdBuf))
+					{
+						if((g_UpdateCodePageTotal.programpage == Get16ValueFrom8Buf(g_CmdBuf,10))&&(g_RemoteUpdatePackNo ==Get16ValueFrom8Buf(g_CmdBuf,12)))
+						{
+							memcpy(g_UartUPBuf,g_CmdBuf+14,496);
+							
+							g_UpdateType = g_CmdBuf[4];
+							if(g_UpdateType == 1)
+							{
+								W25q_Write_N(g_UartUPBuf,FLASH_IAP_DIFFUSER_START1+496*g_RemoteUpdatePackNo,496);
+								W25qxx_ReadBytes(g_checkbuf,FLASH_IAP_DIFFUSER_START1+496*g_RemoteUpdatePackNo,496);
+							}
+							else
+							{
+								W25q_Write_N(g_UartUPBuf,FLASH_IAP_USER_START1+496*g_RemoteUpdatePackNo,496);								
+								W25qxx_ReadBytes(g_checkbuf,FLASH_IAP_USER_START1+496*g_RemoteUpdatePackNo,496);	
+							}
+								
+							if(memcmp(g_UartUPBuf,g_checkbuf,496) == 0)
+								g_RemoteUpdatePackNo++;
+
+							if( g_RemoteUpdatePackNo == g_UpdateCodePageTotal.programpage )
+							{
+								if(g_UpdateType == 1)
+								{
+									DiffUpdateFileSize.FileSize = g_UpdateCodePageTotal.programpage;
+									WriteDiffFileSizeToFlash();										
+								}									
+								else
+								{	
+									NormalUpdateFileSize.FileSize = g_UpdateCodePageTotal.programpage;
+									WriteNormalFileSizeToFlash();
+								}
+								g_RemoteUpdateGCFlag = 6;               
+								g_UpdateSuc = true;
+
+							}
+							else
+							{
+								g_RemoteUpdateGCFlag = 4;	// 3													
+							}
+						}
+					}
+				}				
+			}
+			if(g_QisendStep == 0)
+				CelluarStep = STA_STATE_IDLE;
+			break;
+		default:
+			break;
+	}
+}
+
+
+
+/**
+ * @brief	EC20_Process
+ *	1、测试AT指令
+ *	2、关闭回显
+ *	3、检查SIM卡(有特殊卡可能必须配置PIN才能正常使用该步骤替换为读本机号)
+ *	4、检查信号强度(开机跳转5,联网后跳转)
+ *	5、检查注册网络状态
+ *	6、查询运营商
+ *	7、激活PDP上下文
+ *	8、查询PDP上下文(激活PDP上下文若已返回成功该步骤跳过)
+ *	9、配置16进制发送数据
+ *	10、创建TCP客户端连接数据IP
+ *	11、创建TCP客户端连接升级IP
+ *	12、创建TCP客户端连接升级IP
+ *	13、创建TCP客户端连接升级IP
+ *	14、创建TCP客户端连接升级IP
+ *	15、创建TCP客户端连接升级IP
+ *	16、创建TCP客户端连接升级IP
+ *
+ * @param	
+ *
+ * @return  void
+ */
+void EC20_Process(void)
+{	
+	uint16_t len;
+	int datalen,recid;	
+	char *p;
+	
+	if(g_LPUart.usRxCount > 0 && JudgeSomeDelayInProOk(g_LPUartRxTimer,Delay1mSec))
+	{
+		memset(g_RxBufLP,0,sizeof(g_RxBufLP));
+		
+		if(g_LPUart.usRxCount <= LPUART_RX_BUF_SIZE)
+		{
+			len = g_LPUart.usRxCount;
+			ReadRecBuf(&g_LPUart,g_RxBufLP,g_LPUart.usRxCount);			
+		}
+		else
+		{
+			ReadRecBuf(&g_LPUart,g_RxBufLP,LPUART_RX_BUF_SIZE);
+			g_LPUart.usRxCount = 0;
+			g_LPUart.usRxRead = 0;
+			g_LPUart.usRxWrite = 0;
+			memset(g_DMARxBufLP,0,LPUART_RX_BUF_SIZE);
+			len = LPUART_RX_BUF_SIZE;
+		}
+		g_LPUart1RxSta = 1;
+	}
+	
+	if(g_LPUart1RxSta == 1)
+	{
+		g_LPUart1RxSta = 0;
+		
+		if(strstr((const char*)g_RxBufLP,_QiRec) != NULL)
+		{
+			if(strstr((const char*)g_RxBufLP,_recdata) != NULL)
+			{
+				g_ATSendCnt = 0;
+				g_ATWaitFlag = 0;
+				if(g_NeedPushDatatoServer > 0)
+					g_NeedPushDatatoServer = 0;
+				memset(g_CmdBuf,0,sizeof(g_CmdBuf));
+				p = (char *)g_RxBufLP;
+				p = strstr(p, _QiRec);
+				p = strstr(p, ",");	
+				recid = atol(p+1);
+				p = strstr(p+1, ",");
+				datalen = atol(p+1);	
+				p = strstr(p+1, "\r\n");									
+				memcpy( &g_CmdBuf, p+2, datalen);				
+				SocketRecDataAnalysis(g_CmdBuf,datalen);				
+			}
+			else if(strstr((const char*)g_RxBufLP,_close) != NULL)
+			{
+				p = (char *)g_RxBufLP;
+				p = strstr(p, _close);
+				recid = atol(p+1);
+				CelluarStep = STA_CLOSE_TCP;
+				g_ATSendCnt = 0;
+				g_ATWaitFlag = 0;
+				g_SocketId = recid;
+				g_ReconnetcFlag = 1;
+				if(recid == datasocketid)
+					g_DataNetOk = 0;
+				else if(recid == updatesocketid)
+					g_UpdateNetOk = 0;
+				else if(recid == uploadsocketid)
+					g_UploadNetOk = 0;
+			}
+		}
+		else
+		{
+			switch(CelluarStep)
+			{
+				case STA_PWR_ON:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						CelluarStep = STA_CLOSE_ECHO;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_CLOSE_ECHO:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						CelluarStep = STA_CHK_SIM_STA;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_CHK_SIM_STA:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL && strstr((const char*)g_RxBufLP,_cpin) != NULL && strstr((const char*)g_RxBufLP,_ready) != NULL)
+					{
+						CelluarStep = STA_CHK_ICCID;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_CHK_ICCID:					
+					if(strstr((const char*)g_RxBufLP,OK) != NULL && strstr((const char*)g_RxBufLP,_iccid) != NULL)
+					{						
+						char no[20];
+						uint8_t iccid[10];
+						uint8_t i;
+						
+						p = (char*)g_RxBufLP;
+						
+						p = strstr(p,_iccid);
+						if(p != NULL)
+						{
+							memset(no,0,20);
+							strncpy(no,p+8,20);
+							for(i=0;i<10;i++)
+							{
+								iccid[i] = Asc2Bcd(no[2*i],no[2*i+1]);
+							}
+						}
+						if(iccid[0] == 0x89)
+						{
+							if(g_SelSIMFlag == SELSIM1)
+								memcpy(g_ICCID[SELSIM1],iccid,10);
+							else
+								memcpy(g_ICCID[SELSIM2],iccid,10);
+							
+							if(g_ToolGetICCIDStep == 2 || (g_ToolGetICCIDStep == 1 && g_SelSIMFlag == g_ToolGetICCIDFlag))
+								g_ToolGetICCIDStep = 3;
+							
+							if(g_DataNetOk == 1)
+								CelluarStep = STA_STATE_IDLE;
+							else
+								CelluarStep = STA_CHK_SIM_CGREG;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+						}
+					}
+					break;
+				
+				case STA_CHK_SIM_CGREG:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL && strstr((const char*)g_RxBufLP,_chkcgreg) != NULL)
+					{
+						int state;
+						
+						p = (char*)g_RxBufLP;
+						p = strstr(p,","); 
+						
+						state = atoi(p+1);
+						
+						if(state == 1 || state == 5)
+						{//gsmok=1
+							CelluarStep = STA_CHK_SIGNAL;
+							g_ATSendCnt = 0;
+						}
+						g_ATWaitFlag = 0;
+					}
+					break;
+
+				case STA_CHK_SIGNAL:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL && strstr((const char*)g_RxBufLP,_csq) != NULL)
+					{
+						int signal;
+						p = (char*)g_RxBufLP;
+						
+						p = strstr(p,_csq);
+						
+						signal = atoi(p+strlen(_csq));
+						g_Signal = signal;
+						if(signal != 0 && signal != 99 && signal != 100 && signal != 199 && (g_DataNetOk == 0 || g_ChangeMobileNumStep == 9))
+						{
+							CelluarStep = STA_CHK_NET_TYPE;
+							if(g_ChangeMobileNumStep == 9)
+								g_ChangeMobileNumStep = 0;
+							g_ATWaitFlag = 0;
+						}
+						else if(g_DataNetOk == 1)
+						{
+							CelluarStep = STA_STATE_IDLE;
+							g_ATWaitFlag = 0;
+						}
+						g_ATSendCnt = 0;
+						
+					}
+					break;
+					
+				case STA_CHK_NET_TYPE:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL && strstr((const char*)g_RxBufLP,_cops) != NULL)
+					{
+						int act;						
+
+						p = (char*)g_RxBufLP;
+						p = strstr(p,"\",");
+						act = atoi(p+2);
+						
+						if(act == 0 || act == 1 || act == 3)
+							g_ActType = 1;
+						else if(act == 2 || act == 4 || act == 5 || act == 6)
+							g_ActType = 2;
+						else if(act == 7)
+							g_ActType = 3;
+						CelluarStep = STA_CFG_PDP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					
+					break;
+				
+				case STA_CFG_PDP:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						CelluarStep = STA_ACTIVE_PDP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+						
+					}	
+					else if(strstr((const char*)g_RxBufLP,_error) != NULL)
+					{
+						CelluarStep = STA_CHK_PDP;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_CHK_PDP:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL )
+					{
+						if(strstr((const char*)g_RxBufLP,_Qiact) != NULL)
+						{
+							CelluarStep = STA_SET_SLEEP;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+						}
+						else
+						{
+							CelluarStep = STA_ACTIVE_PDP;
+							g_ATWaitFlag = 0;
+							g_ATSendCnt = 0;
+						}
+					}					
+					break;
+					
+				case STA_ACTIVE_PDP:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						CelluarStep = STA_CHK_PDP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}	
+					else if(strstr((const char*)g_RxBufLP,_error) != NULL)
+					{
+						CelluarStep = STA_CHK_PDP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_SET_SLEEP:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						CelluarStep = STA_CREAT_DATATCP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}					
+					break;
+					
+				case STA_CREAT_DATATCP:
+					if(strstr((const char*)g_RxBufLP,_error) != NULL )
+					{
+						CelluarStep = STA_CLOSE_TCP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					else if(strstr((const char*)g_RxBufLP,_QiOpen) != NULL)
+					{
+						int id;
+						p = (char*)g_RxBufLP;
+						p = strstr(p,_QiOpen);
+						id = atoi(p+strlen(_QiOpen));
+						if(id == datasocketid)
+						{						
+							CelluarStep = STA_STATE_IDLE;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+							g_NetAskTime = 1;
+						}
+					}
+					break;
+				
+				case STA_CREAT_UPDATETCP:
+					if(strstr((const char*)g_RxBufLP,_error) != NULL )
+					{
+						CelluarStep = STA_CLOSE_TCP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}					
+					else if(strstr((const char*)g_RxBufLP,_QiOpen) != NULL)
+					{
+						int id;
+						
+						p = (char*)g_RxBufLP;
+						p = strstr(p,_QiOpen);
+						id = atoi(p+strlen(_QiOpen));
+						if(id == updatesocketid)
+						{						
+							CelluarStep = STA_STATE_IDLE;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+							if(g_RemoteUpdateGCFlag <= 1)
+								g_RemoteUpdateGCFlag = 2;
+							else if(g_RemoteUpdateGCFlag > 3)
+							{
+								g_RemoteUpdateGCFlag--;
+							}
+							g_UpdateNetOk = 1;
+						}
+					}				
+					break;
+				
+				case STA_CREAT_UPLOADTCP:					
+					if(strstr((const char*)g_RxBufLP,_error) != NULL )
+					{
+						CelluarStep = STA_CLOSE_TCP;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}					
+					else if(strstr((const char*)g_RxBufLP,_QiOpen) != NULL)
+					{
+						int id;
+						
+						p = (char*)g_RxBufLP;
+						p = strstr(p,_QiOpen);
+						id = atoi(p+strlen(_QiOpen));
+						if(id == uploadsocketid)
+						{						
+							CelluarStep = STA_STATE_IDLE;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+							if(g_RemoteUpdateGCFlag <= 1)
+								g_RemoteUpdateGCFlag = 2;
+							g_UploadNetOk = 1;
+						}						
+					}
+					break;
+				
+				case STA_CLOSE_TCP:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL)
+					{
+						if(g_ChangeMyMobileNumFlag)
+						{
+							g_ChangeMyMobileNumFlag = false;
+							g_ChangeMobileNumStep = 9;
+							CelluarStep = STA_CHK_SIM_CGREG;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+						}
+						else if(g_RemoteUpdateGCFlag == 1)
+						{
+							CelluarStep = STA_CREAT_UPDATETCP;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 1;
+							g_ATWaitDelay = 5000;
+						}
+						else if(g_ReconnetcFlag == 2)
+						{
+							CelluarStep = STA_CREAT_DATATCP;
+							g_ReconnetcFlag = 0;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+							g_ATWaitDelay = 5000;
+						}
+						
+					}
+					
+					break;
+				
+				case STA_SEND_TO_SOCKET:
+					if(strstr((const char*)g_RxBufLP,_QiAck) != NULL)
+					{
+						if(g_QisendStep == 2)
+						{
+							g_QisendStep = 3;
+							g_ATWaitFlag = 0;
+						}
+					}
+					else if(strstr((const char*)g_RxBufLP,OK) != NULL )
+					{
+						g_QisendStep = 0;
+						CelluarStep = STA_STATE_IDLE;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					else if(strstr((const char*)g_RxBufLP,_error) != NULL)
+					{
+						g_QisendStep = 0;
+						CelluarStep = STA_STATE_IDLE;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;						
+					}
+					break;
+				case STA_SENDEX_TO_SOCKET:
+					if(strstr((const char*)g_RxBufLP,OK) != NULL )
+					{
+						if(g_AskATCmdFlag == 1)
+						{
+							g_AskATCmdFlag = 2;
+							CelluarStep = STA_NET_CHK_AT;
+						}
+						else
+							CelluarStep = STA_STATE_IDLE;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+						g_SendToSocketFailCount = 0;
+						g_SendToNetFailCount = 0;
+					}
+					else if(strstr((const char*)g_RxBufLP,_error) != NULL)
+					{
+						if(g_SendToSocketFailCount++ >= 10)
+						{
+							g_PowerOffEc20CmdFlag = 0;
+							PWR_CELLUAR_DISABLE();
+							g_CelluarPowerOn = 0;
+							g_CelluarPowerOffDelay = TIM2->CNT;
+							g_NeedRebootEc20Flag = 1;
+							CelluarStep = STA_REBOOT;
+						}
+						else
+							CelluarStep = STA_STATE_IDLE;
+						g_ATSendCnt = 0;
+						g_ATWaitFlag = 0;
+					}
+					break;
+
+				case STA_PWR_OFF:
+					if(strstr((const char*)g_RxBufLP,_poweroff) != NULL)
+					{
+						if(g_RemoteUpdateGCFlag == 8)
+						{
+							g_RemoteUpdateGCFlag = 9;
+						}
+						
+						if(g_PowerOffEc20CmdFlag == 1)
+						{
+							g_PowerOffEc20CmdFlag = 2;
+							g_PowerOffEc20CmdDelay = TIM2->CNT;
+						}
+						CelluarStep = STA_STATE_IDLE;
+						g_ATWaitFlag = 0;
+					}
+					break;
+					
+				case STA_NET_CHK_AT:
+					memset(g_ReturnATCmd,0,sizeof(g_ReturnATCmd));
+					if(len > 136)
+						g_ReturnATCmdLen = 136;
+					else
+						g_ReturnATCmdLen = len;
+					memcpy(g_ReturnATCmd,g_RxBufLP,g_ReturnATCmdLen);
+					if(g_AskATCmdFlag == 2)
+						g_AskATCmdFlag = 3;
+					CelluarStep = STA_STATE_IDLE;
+					g_CtrlMsgFlag = 1;
+					g_ATWaitFlag = 0;
+					g_ATSendCnt = 0;
+					break;
+				
+				default:
+
+					break;
+			}
+		}
+		
+	}
+	
+	if((JudgeSomeDelayInProOk(g_LPUart.usTxTimer,g_ATWaitDelay*Delay1mSec) == true && g_ATWaitFlag == 1) || 
+		(JudgeSomeDelayInProOk(g_LPUart.usTxTimer,Delay1mSec) == true && g_ATWaitFlag == 0))
+	{
+		if(g_CelluarPowerOn == 1 && JudgeSomeDelayInProOk(g_CelluarPowerOnDelay,Delay30Sec) == true)
+		{
+			switch(CelluarStep)
+			{
+				case STA_PWR_ON:
+					if(g_ATSendCnt < 5)
+					{
+						SendAT(at);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 30000;						
+						g_ATSendCnt++;
+					}
+					else
+					{//异常处理等待150s硬件复位模块
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+					
+				case STA_CLOSE_ECHO:
+					SendAT(ate0);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 30000;
+					break;
+				
+				case STA_CHK_SIM_STA:
+					if(g_ATSendCnt < 5)
+					{
+						SendAT(cpin);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 5000;
+						g_ATSendCnt++;
+					}
+					else
+					{//20s内无法识别SIM卡状态重启
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+				
+				case STA_CHK_ICCID:
+					if(g_ATSendCnt < 5)
+					{
+						SendAT(chkiccid);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 300;
+						g_ATSendCnt++;
+					}
+					break;
+				
+				case STA_CHK_SIM_CGREG:
+					if(g_ATSendCnt < 12)
+					{
+						SendAT(chkcgreg);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 3000;
+						g_ATSendCnt++;
+					}
+					else
+					{//60s内无法注册PS跳过
+						CelluarStep = STA_CHK_SIGNAL;
+					}
+					break;
+					
+				case STA_CHK_SIGNAL:
+					SendAT(csq);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 30000;
+					break;
+				
+				case STA_CHK_NET_TYPE:
+					SendAT(cops);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 30000;
+					break;
+				
+				case STA_SET_SLEEP:
+					SendAT(QiSleep);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 30000;
+					break;
+				
+				case STA_CFG_PDP:
+					SendAT(CfgQics);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 30000;
+					break;
+				
+				case STA_ACTIVE_PDP:
+					if(g_ATSendCnt < 1)
+					{
+						SendAT(ActQiact);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 150000;
+						g_ATSendCnt++;
+					}
+					else
+					{//等待150s复位模块
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+					
+				case STA_CHK_PDP:
+					SendAT(QueQiact);
+					g_ATWaitFlag = 1;
+					g_ATWaitDelay = 3000;
+					break;				
+				
+				case STA_CREAT_DATATCP:
+					if(g_ATSendCnt < 1)
+					{
+						char str[40];
+						
+						memset(str,0,sizeof(str));
+						sprintf(str,"%s%d.%d.%d.%d\",%d,0,1\r",QiOpenData,
+							g_ServerInfo.serveripaddr[2][0],g_ServerInfo.serveripaddr[2][1],g_ServerInfo.serveripaddr[2][2],g_ServerInfo.serveripaddr[2][3],g_ServerInfo.serverportaddr[2]);
+						SendAT(str);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 150000;
+						g_ATSendCnt++;
+					}			
+					else
+					{
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+				
+				case STA_CREAT_UPDATETCP:
+					if(g_ATSendCnt < 1)
+					{
+						char str[40];
+						
+						memset(str,0,sizeof(str));
+						sprintf(str,"%s%d.%d.%d.%d\",%d,0,1\r",QiOpenUpdate,
+							g_ServerInfo.serveripaddr[0][0],g_ServerInfo.serveripaddr[0][1],g_ServerInfo.serveripaddr[0][2],g_ServerInfo.serveripaddr[0][3],g_ServerInfo.serverportaddr[0]);
+						SendAT(str);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 150000;
+						g_ATSendCnt++;
+					}
+					else
+					{
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+				
+				case STA_CREAT_UPLOADTCP:
+					if(g_ATSendCnt < 1)
+					{
+						char str[40];
+						
+						memset(str,0,sizeof(str));
+						sprintf(str,"%s%d.%d.%d.%d\",%d,0,1\r",QiOpenUpload,
+							g_ServerInfo.serveripaddr[1][0],g_ServerInfo.serveripaddr[1][1],g_ServerInfo.serveripaddr[1][2],g_ServerInfo.serveripaddr[1][3],g_ServerInfo.serverportaddr[1]);
+						SendAT(str);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 150000;
+						g_ATSendCnt++;
+					}
+					else
+					{
+						CelluarStep = STA_PWR_OFF;
+						g_NeedRebootEc20Flag = 1;
+					}
+					break;
+					
+				case STA_CLOSE_TCP:
+					{
+						char str[40];
+						memset(str,0,sizeof(str));
+						
+						if((g_ChangeMyMobileNumFlag && g_ChangeMobileNumStep == 1) || g_ChangeIPFlag == 1 || g_RemoteUpdateGCFlag == 1)
+						{
+							sprintf(str,"%s%d\r",IpClose,datasocketid);
+							SendAT(str);
+							g_ATWaitFlag = 1;
+							g_ATWaitDelay = 10000;
+							if(g_ChangeMyMobileNumFlag == 0)//g_ChangeMobileNumStep == 7
+								g_ChangeMobileNumStep = 8;
+							g_DataNetOk = 0;
+						}
+						else if(g_ReconnetcFlag == 1)
+						{
+							sprintf(str,"%s%d\r",IpClose,g_SocketId);
+							SendAT(str);
+							g_ATWaitFlag = 1;
+							g_ATWaitDelay = 10000;
+							g_ReconnetcFlag = 2;
+						}
+						else if(g_ReconnetcFlag == 2)
+						{
+							g_PowerOffEc20CmdFlag = 0;
+							PWR_CELLUAR_DISABLE();
+							g_CelluarPowerOn = 0;
+							g_CelluarPowerOffDelay = TIM2->CNT;
+							g_NeedRebootEc20Flag = 1;
+							CelluarStep = STA_REBOOT;
+						}
+					}
+					break;
+				
+				case STA_SEND_TO_SOCKET:
+					if(g_QisendStep == 1)
+					{
+						SendAT(QiSendD6);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 90000;
+						g_QisendStep = 2;
+					}
+					else if(g_QisendStep == 3)
+					{
+						SendDatatoSocket_SEND(tmpsendbuf,321);
+						g_QisendStep = 4;
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 10000;
+					}
+					else
+					{
+						g_QisendStep = 0;
+						CelluarStep = STA_STATE_IDLE;
+						if(!g_SendD6Suc)
+							g_SendD6Suc = true;
+					}
+					break;
+				
+				case STA_SENDEX_TO_SOCKET:
+					if(g_SendToNetFailCount > 10)
+					{
+						CelluarStep = STA_CLOSE_TCP;
+						g_ReconnetcFlag = 1;
+					}
+					else
+					{
+						if(g_AskATCmdFlag == 1)
+						{
+							g_AskATCmdFlag = 2;
+							CelluarStep = STA_NET_CHK_AT;
+							g_ATSendCnt = 0;
+							g_ATWaitFlag = 0;
+						}
+						else	
+							CelluarStep = STA_STATE_IDLE;
+					}
+					break;
+
+				case STA_PWR_OFF:
+					if(g_PowerOffEc20CmdFlag == 0)
+					{
+						SendAT(poweroff);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 65000;
+						g_PowerOffEc20CmdFlag = 1;
+						g_PowerOffEc20CmdDelay = TIM2->CNT;
+						if(g_RemoteUpdateGCFlag == 7)
+						{
+							g_RemoteUpdateGCFlag = 8;
+						}
+					}
+					else
+					{
+						CelluarStep = STA_STATE_IDLE;
+					}
+					break;
+					
+				case STA_NET_CHK_AT:
+					if(g_ATSendCnt < 1)
+					{
+						SendAT(g_AskATCmd);
+						g_ATWaitFlag = 1;
+						g_ATWaitDelay = 3000;
+						g_ATSendCnt++;
+					}
+					else
+					{
+						g_CtrlMsgFlag = 0;
+						g_AskATCmdFlag = 0;
+						CelluarStep = STA_STATE_IDLE;
+					}
+					break;
+				
+				case STA_STATE_IDLE:
+					IdleStatePro();					
+					break;
+				
+				default:
+					break;
+			}
+		
+		}
+		else if(g_CelluarPowerOn == 0)
+		{
+			if(g_RemoteUpdateGCFlag == 10)
+			{
+				if(g_UpdateSuc)
+				{
+					if(g_UpdateType == 1)
+					{
+						g_UpdateType = 0;
+						DiffProgramUserData();
+					}
+					g_UpdateSuc = false;
+					SoftReset();
+				}
+			}
+			if(g_NeedRebootEc20Flag == 1)
+			{
+				if(g_CelluarPowerOn == 0 && JudgeSomeDelayInProOk(g_CelluarPowerOffDelay,Delay30Sec) == true)
+				{
+					PWR_CELLUAR_ENABLE();
+					InitCelluarGpio();
+					CelluarStep = STA_PWR_ON;
+					g_CelluarPowerOn = 1;
+					g_CelluarPowerOnDelay = TIM2->CNT;
+					g_NeedRebootEc20Flag = 0;
+					
+					InitNet();
+				}
+			}
+		}
+	}
+}
+

@@ -1,0 +1,186 @@
+
+#include "bsp_spi.h"
+
+SPI_HandleTypeDef	hspi1;
+SPI_HandleTypeDef 	hspi2;  //SPI2句柄
+
+/**
+ * @brief	SPI1初始化代码，配置成主机模式
+ *
+ * @param   void
+ *
+ * @return  void
+ */
+void SPI1_Init(void)
+{
+    hspi1.Instance				=SPI1;                         	//SPI1
+    hspi1.Init.Mode				=SPI_MODE_MASTER;            	//设置SPI工作模式，设置为主模式
+    hspi1.Init.Direction		=SPI_DIRECTION_2LINES;   		//设置SPI单向或者双向的数据模式:SPI设置为双线模式
+    hspi1.Init.DataSize			=SPI_DATASIZE_8BIT;       		//设置SPI的数据大小:SPI发送接收8位帧结构
+    hspi1.Init.CLKPolarity		=SPI_POLARITY_HIGH;    			//串行同步时钟的空闲状态为高电平
+    hspi1.Init.CLKPhase			=SPI_PHASE_2EDGE;         		//串行同步时钟的第二个跳变沿（上升或下降）数据被采样
+    hspi1.Init.NSS				=SPI_NSS_SOFT;                 	//NSS信号由硬件（NSS管脚）还是软件（使用SSI位）管理:内部NSS信号有SSI位控制
+    hspi1.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_8;		//定义波特率预分频的值:波特率预分频值为256
+    hspi1.Init.FirstBit			=SPI_FIRSTBIT_MSB;        		//指定数据传输从MSB位还是LSB位开始:数据传输从MSB位开始
+    hspi1.Init.TIMode			=SPI_TIMODE_DISABLE;        	//关闭TI模式
+    hspi1.Init.CRCCalculation	=SPI_CRCCALCULATION_DISABLE;	//关闭硬件CRC校验
+    hspi1.Init.CRCPolynomial	=7;                  			//CRC值计算的多项式
+    HAL_SPI_Init(&hspi1);										//初始化SPI1
+    
+    __HAL_SPI_ENABLE(&hspi1);                    				//使能SPI1
+}
+
+/**
+ * @brief	SPI2初始化代码，配置成主机模式
+ *
+ * @param	void
+ *
+ * @return  void
+ */
+void SPI2_Init(void)
+{
+    hspi2.Instance				=SPI2;                   //SPI2
+    hspi2.Init.Mode				=SPI_MODE_MASTER;        //设置SPI工作模式，设置为主模式
+    hspi2.Init.Direction		=SPI_DIRECTION_2LINES;   //设置SPI单向或者双向的数据模式:SPI设置为双线模式
+    hspi2.Init.DataSize			=SPI_DATASIZE_8BIT;      //设置SPI的数据大小:SPI发送接收8位帧结构
+    hspi2.Init.CLKPolarity		=SPI_POLARITY_LOW;     	 //串行同步时钟的空闲状态为低电平
+    hspi2.Init.CLKPhase			=SPI_PHASE_1EDGE;        //串行同步时钟的第一个跳变沿（上升或下降）数据被采样
+    hspi2.Init.NSS				=SPI_NSS_SOFT;           //NSS信号由硬件（NSS管脚）还是软件（使用SSI位）管理:内部NSS信号有SSI位控制
+    hspi2.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_32;//定义波特率预分频的值
+    hspi2.Init.FirstBit			=SPI_FIRSTBIT_MSB;       //指定数据传输从MSB位还是LSB位开始:数据传输从MSB位开始?
+    hspi2.Init.TIMode			=SPI_TIMODE_DISABLE;     //关闭TI模式
+    hspi2.Init.CRCCalculation	=SPI_CRCCALCULATION_DISABLE;//关闭硬件CRC校验
+    hspi2.Init.CRCPolynomial	=10;                  	 //CRC值计算的多项式
+    HAL_SPI_Init(&hspi2);								 //初始化SPI2
+    
+    __HAL_SPI_ENABLE(&hspi2);                     //使能SPI2
+}
+
+
+/**
+ * @brief	SPI底层驱动，时钟使能，引脚配置
+ *
+ * @param   hspi	SPI句柄
+ *
+ * @return  void
+ */
+void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)
+{
+    GPIO_InitTypeDef GPIO_Initure;
+    
+	if(hspi->Instance == SPI1)
+	{
+		__HAL_RCC_GPIOA_CLK_ENABLE();       		//使能GPIOA时钟
+		__HAL_RCC_GPIOB_CLK_ENABLE();       		//使能GPIOB时钟
+		__HAL_RCC_SPI1_CLK_ENABLE();        		//使能SPI1时钟
+		//PA5/6/7
+		GPIO_Initure.Pin=GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+		GPIO_Initure.Mode=GPIO_MODE_AF_PP;              //复用
+		GPIO_Initure.Pull=GPIO_PULLUP;                  //上拉
+		GPIO_Initure.Speed=GPIO_SPEED_FREQ_MEDIUM;   			//80Mhz           
+		GPIO_Initure.Alternate=GPIO_AF5_SPI1;           //PA5/6/7复用为SPI1
+		HAL_GPIO_Init(GPIOA,&GPIO_Initure);
+		//PA4
+		GPIO_Initure.Pin=GPIO_PIN_4;
+		GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;
+		HAL_GPIO_Init(GPIOA,&GPIO_Initure);
+
+	}
+	else if(hspi->Instance == SPI2)
+	{
+		__HAL_RCC_GPIOB_CLK_ENABLE();       			//使能GPIOB时钟
+		__HAL_RCC_GPIOC_CLK_ENABLE();       			//使能GPIOC时钟
+		__HAL_RCC_SPI2_CLK_ENABLE();					//使能SPI2时钟
+		//PB10=SCK
+		GPIO_Initure.Pin=GPIO_PIN_10;
+		GPIO_Initure.Mode=GPIO_MODE_AF_PP;              //复用推挽
+		GPIO_Initure.Pull=GPIO_PULLUP;                  //无上下拉
+		GPIO_Initure.Speed=GPIO_SPEED_FREQ_VERY_HIGH;   //
+		GPIO_Initure.Alternate=GPIO_AF5_SPI2;           //PB10复用为SPI2_SCK
+		HAL_GPIO_Init(GPIOB,&GPIO_Initure);
+		//PC2=MISO, PC3=MOSI
+		GPIO_Initure.Pin=GPIO_PIN_2|GPIO_PIN_3;
+		GPIO_Initure.Pull=GPIO_PULLUP;
+		GPIO_Initure.Alternate=GPIO_AF5_SPI2;           //PC2/PC3复用为SPI2_MISO/MOSI
+		HAL_GPIO_Init(GPIOC,&GPIO_Initure);
+	}
+}
+
+/**
+ * @brief	SPI反初始化
+ *
+ * @param	hspi	SPI句柄
+ *
+ * @return  void
+ */
+void DeInitSPI(SPI_HandleTypeDef *hspi)
+{
+	HAL_SPI_DeInit(hspi);
+	if(hspi->Instance == SPI1)
+	{
+		__HAL_RCC_SPI1_FORCE_RESET();
+		__HAL_RCC_SPI1_RELEASE_RESET();
+	}
+	else if(hspi->Instance == SPI2)
+	{
+		__HAL_RCC_SPI2_FORCE_RESET();
+		__HAL_RCC_SPI2_RELEASE_RESET();
+	}
+}
+
+/**
+ * @brief	HAL库串口底层反初始化
+ *
+ * @param	hspi	SPI句柄
+ *
+ * @return  void
+ */
+void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi)
+{
+	GPIO_InitTypeDef GPIO_Initure;
+    
+	if(hspi->Instance == SPI1)
+	{
+		__HAL_RCC_GPIOA_CLK_ENABLE();       		//使能GPIOA时钟
+		__HAL_RCC_SPI1_CLK_ENABLE();        		//使能SPI1时钟
+		//PA5/6/7
+		GPIO_Initure.Pin=GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+		GPIO_Initure.Mode=GPIO_MODE_ANALOG;              //复用
+		GPIO_Initure.Pull=GPIO_NOPULL;                  //上拉
+		HAL_GPIO_Init(GPIOA,&GPIO_Initure);
+		//PA4
+		GPIO_Initure.Pin=GPIO_PIN_4;
+		HAL_GPIO_Init(GPIOA,&GPIO_Initure);
+		
+		//PB0 PB1
+		GPIO_Initure.Pin=GPIO_PIN_0|GPIO_PIN_1;
+		HAL_GPIO_Init(GPIOB,&GPIO_Initure);
+		
+	}
+	else if(hspi->Instance == SPI2)
+	{
+		__HAL_RCC_GPIOB_CLK_ENABLE();       			//使能GPIOB时钟
+		__HAL_RCC_SPI2_CLK_ENABLE();					//使能SPI2时钟
+		//PB14/15
+		GPIO_Initure.Pin=GPIO_PIN_14|GPIO_PIN_15; //MISO MOSI
+		GPIO_Initure.Mode=GPIO_MODE_ANALOG;              //复用推挽
+		GPIO_Initure.Pull=GPIO_NOPULL;                  //无上下拉
+		GPIO_Initure.Speed=GPIO_SPEED_FREQ_HIGH;   			//           
+		HAL_GPIO_Init(GPIOB,&GPIO_Initure);
+		
+		GPIO_Initure.Speed=GPIO_SPEED_FREQ_HIGH;
+		GPIO_Initure.Pin = GPIO_PIN_13;
+		HAL_GPIO_Init(GPIOB,&GPIO_Initure);
+
+	}
+}
+
+
+
+
+
+
+
+
+
+

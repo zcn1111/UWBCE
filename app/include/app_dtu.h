@@ -1,0 +1,80 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __APP_DTU_H
+#define __APP_DTU_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+
+#define ASKSTATUSTIMES  6
+#define SETIPTIMERS 	2
+#define SENDREQTIMERS 	3   //6
+#define DATAOKTIMERS 3
+
+#define ASK_SIGNALSTRENGTH   0x01        //请求信号强度
+#define ASK_TIME             0x02        //请求时间
+#define ASK_MYNUM_IP         0x03        //请求本机号和IP
+
+#define GPRS_MODE            0
+#define SMS_MODE             1
+#define GPRS_SMS_MODE        2
+
+extern uint8_t g_IPBuffer[3][4];//0-远程升级IP，1-远程转储IP，2-数据IP
+extern uint16_t g_PortNo[3];
+extern uint8_t g_DataIPBack[4];      //数据IP备份
+extern uint16_t g_DataPortBack;      //数据端口号备份
+extern bool g_ChangeMyMobileNumFlag;
+extern uint8_t g_ChangeIPFlag;                   //修改IP的标志
+extern uint32_t g_GetChangeIPCmdStartTime;       //收到修改IP命令的起始时间
+
+extern uint8_t g_InNormalNetStatus;
+extern uint8_t g_RemoteActionPre;
+extern uint8_t g_GsmEnergy;
+extern uint8_t g_GprsOk;
+extern uint8_t g_GsmOk;
+extern uint32_t g_GprsOffTime;
+
+extern bool g_TimeNoAdjustFlag;
+
+extern uint8_t g_ShouldJumpToStartFlag;
+extern uint8_t g_UartUPBuf[512];
+extern uint8_t g_checkbuf[512];
+extern uint8_t MajorVersion;                     //主版本号   
+extern uint8_t MinorVersion;                     //次版本号  
+extern uint8_t LastMajorVersion;                 //主版本号  
+extern uint8_t LastMinorVersion;                 //次版本号 
+extern uint32_t  LastTotalBagNum;
+extern uint8_t g_RemoteUpdateGCFlag; 
+extern uint8_t g_RemoteUpdateFirstFlag;/* 远程升级开始标志 */
+extern uint16_t g_RemoteUpdatePackNo;
+extern uint16_t g_RemoteUpdatePackTotal;
+extern uint8_t g_RemoteOutTimer;         /*max=3*/
+extern uint8_t g_RemoteDataOkTimer;      /*max=3*///g_RemoteUpdateNoDataTimer
+
+extern uint16_t g_ZC_StartAddr;                  /* 数据转储开始地址 */
+extern uint16_t g_ZC_PageLength;                 /* 数据转储页长度 */
+extern uint32_t g_FileSize;                      /* 数据转储文件大小 */
+extern uint32_t g_FileOffset;                    /* 数据转储文件偏移地址 */
+extern uint32_t g_PageOffset;                    /* 数据转储页偏移地址 */
+extern uint8_t g_RemoteZCGCFlag;                 //远程数据转储过程标志位
+extern uint8_t g_RemoteZc_UpdateFlag;            /* =0 normal, =1 zc, =2 update */
+extern uint8_t g_RemoteDataOkTimer;/*max=3*///g_RemoteUpdateNoDataTimer
+extern uint32_t g_RemoteLinkDelay;               /* 远程延时  */
+
+extern uint8_t g_AskPowerControlFlag;    //返回电源控制信息
+extern uint8_t g_ResetPowerFlag;         //重启电源标识  1-重启485 2-重启系统 3-重启DTU		-99RTC时间连续错误重启
+
+extern uint8_t g_AskAuthorityFlag;
+
+extern uint8_t g_D6Number[6];
+extern const uint8_t TotalControlMobleNo[6];
+extern const uint8_t YFTotalControlMobleNo[6];
+
+
+void InitDTUVar(void);
+
+void DTUProcess(void);
+void Send_Ip_Port(uint8_t *IP, uint16_t Port,uint8_t type);
+void AutoPowerOffDTU(void);
+
+#endif /* __APP_DTU_H */

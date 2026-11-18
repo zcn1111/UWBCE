@@ -1,0 +1,180 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __APP_GLOVAR_H
+#define __APP_GLOVAR_H
+
+#include "stdint.h"
+#include "stdbool.h"
+
+/* 16M FLASH 数据存放的地址分配 */
+
+/* 	以字节为单位，在函数里面换算为字节地址 */
+/*FLASH第一页空      */
+
+/*系统参数		    */
+#define FLASH_SYSPARAMETER_START 		1*256
+#define FLASH_SYSPARAMETER_LEN 			1*256
+
+/*预留*/
+#define FLASH_RESERVED_START 			(FLASH_SYSPARAMETER_START + FLASH_SYSPARAMETER_LEN)
+#define FLASH_RESERVED_LEN 				14*256
+
+/*手机号			*/
+#define FLASH_MOBILE_START				(FLASH_RESERVED_START + FLASH_RESERVED_LEN)
+#define FLASH_MOBILE_LEN				1*256
+
+/*IP端口号		   */
+#define FLASH_IPPORT_START				(FLASH_MOBILE_START + FLASH_MOBILE_LEN)
+#define FLASH_IPPORT_LEN				1*256
+
+/*预留             */
+#define FLASH_RESERVED_START1 			(FLASH_IPPORT_START + FLASH_IPPORT_LEN)
+#define FLASH_RESERVED_LEN1 			14*256
+
+/*升级		      */
+#define FLASH_UPDATA_START				(FLASH_RESERVED_START1 + FLASH_RESERVED_LEN1)
+#define FLASH_UPDATA_LEN				1*256
+
+/*预留            */
+#define FLASH_RESERVED_START2 			(FLASH_UPDATA_START + FLASH_UPDATA_LEN)
+#define FLASH_RESERVED_LEN2 			15*256
+
+/*电源控制		   */
+#define FLASH_POWERCTL_START			(FLASH_RESERVED_START2 + FLASH_RESERVED_LEN2)
+#define FLASH_POWERCTL_LEN				1*256
+
+/*预留             */
+#define FLASH_RESERVED_START3 			(FLASH_POWERCTL_START + FLASH_POWERCTL_LEN)
+#define FLASH_RESERVED_LEN3 			15*256
+
+/*白名单             */
+#define	FLASH_UNITCARD_START			(FLASH_RESERVED_START3 + FLASH_RESERVED_LEN3)
+#define FLASH_UNITCARD_LEN				10*4096
+
+/* 授权信息 */
+#define FLASH_UNITINFO_START 			(FLASH_UNITCARD_START + FLASH_UNITCARD_LEN)
+#define FLASH_UNITINFO_LEN  			1*4096
+
+/*预留             */
+#define FLASH_PAR_RESERVED_START 		(FLASH_UNITINFO_START + FLASH_UNITINFO_LEN)
+#define FLASH_PAR_RESERVED_LEN 			12*4096
+
+/*状态数据		  */
+#define FLASH_STATUSDATA_START			(FLASH_PAR_RESERVED_START+FLASH_PAR_RESERVED_LEN)
+#define FLASH_STATUSDATA_LEN			64*4096		//1024*256
+
+
+
+//user差分升级差分包地址
+#define FLASH_IAP_USER_START1			12*1024*1024
+#define FLASH_IAP_USER_LEN1				1024*1024
+
+//user差分升级解压包地址
+#define FLASH_IAP_DIFFUSER_START2		13*1024*1024		
+#define FLASH_IAP_DIFFUSER_LEN2			1024*1024
+
+#define FLASH_VERSION_START				14*1024*1024
+#define FLASH_VERSION_LEN				1*256
+
+//boot程序地址
+#define FLASH_IAP_BOOT_START1			14684160//(14*1024*1024+4096)
+#define FLASH_IAP_BOOT_LEN1				1044480//(1024*1024-4096)
+
+//user程序地址
+#define FLASH_IAP_DIFFUSER_START1		15*1024*1024		
+#define FLASH_IAP_DIFFUSER_LEN1			1024*1024
+
+/**************************************************通用 START*********************************************************************/
+
+#define SIM1ONLY	0
+#define SIM2ONLY	1
+#define SIMAUTO		2
+
+
+typedef struct
+{
+	uint8_t programtype;
+	uint8_t mainverno;
+	uint8_t secverno;	
+	uint16_t programpage;
+} UPDATAPROGRAM;
+extern UPDATAPROGRAM g_UpdateCodePageTotal;
+extern uint8_t g_UpdateCodeTypeErrorFlag;
+
+typedef struct
+{
+    uint16_t FileSize;
+    uint16_t Crc16;
+}UpdateFile;
+extern UpdateFile NormalUpdateFileSize;  //正常文件大小
+extern UpdateFile DiffUpdateFileSize;     //增量升级主程序文件大小
+
+
+extern uint8_t	g_VersionHex[2];				//16进制版本号
+extern uint8_t	g_VersionAscii[4];				//ASCII版本号
+
+typedef struct
+{
+    uint8_t bootversion[4];
+	uint8_t userversion[4]; 
+    uint16_t Crc16;
+}_VERSION_FLASH;
+extern _VERSION_FLASH g_VersioninFlash;
+
+
+typedef struct
+{
+	uint8_t mobileno[5][6];	    
+    uint16_t Crc16;
+}_MOBILE_FLASH;
+extern _MOBILE_FLASH g_MobileInFlash;
+extern bool g_GetMyMobileOKFlag;
+
+typedef struct
+{
+	uint8_t serveripaddr[3][4];	 //0-远程升级IP，1-远程转储IP，2-数据IP
+	uint16_t serverportaddr[3]; 
+	uint16_t Crc16;
+}_SERVER_FLASH;
+extern _SERVER_FLASH g_ServerInfo;
+extern uint8_t g_tmpBuf[1600];
+
+void ReadSysPar(void);
+void WriteSysPar(void);
+void WriteDTUSysPar(void);
+void ReadDTUSysPar(void);
+void WriteNormalFileSizeToFlash(void);
+bool ReadNormalFileSizeFromFlash(void);
+void WriteDiffFileSizeToFlash(void);
+bool ReadDiffFileSizeFromFlash(void);
+bool ReadMobileNoFromFLASH(void);
+void WriteMobileNoToFLASH(void);
+void WriteNormalFileSizeToFlash(void);
+void CmpIPAndPort(void);
+void WriteServerInfoPar(void);
+bool ReadServerInfoPar(void);
+void WritePowerCtlFlagToFlash(uint8_t flag);
+void WritePowerCtlNoTolash(uint8_t *number);
+void ReadPowerCtlFlagFromFlash(void);
+bool ReadPowerCtlNoFromFlash(uint8_t *number);
+void ChangeVersionFormat(void);
+/**************************************************通用 END*********************************************************************/
+
+/***********************************************************************************************************************/
+typedef struct
+{
+	uint8_t keeponlinetime;//长时间不关门报警时长单位为分钟，默认10分钟
+	uint8_t closelockdelay;//锁开自动关门时长,单位为分钟
+	uint8_t locktype;
+	uint8_t openlockcmd[8];
+	uint8_t updatestatustime[2];
+	uint8_t updatestatuscnt;
+	uint8_t simmode;
+	uint8_t res[15];
+	uint16_t crc16;
+}_SYS_PAR;
+extern _SYS_PAR g_SysPar;
+
+
+
+/***********************************************************************************************************************/
+#endif /* __APP_GLOVAR_H */

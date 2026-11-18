@@ -1,0 +1,121 @@
+
+#include "stm32l4xx.h"
+#include "bsp_lptim.h"
+#include "bsp_timer.h"
+#include "app_glovar.h"
+
+LPTIM_HandleTypeDef LptimHandle;
+uint16_t g_WakeUpCnt=0;
+/*
+*********************************************************************************************************
+*	函 数 名: bsp_InitLPTIM
+*	功能说明: 初始化LPTIM
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void bsp_InitLPTIM(void)
+{
+	RCC_PeriphCLKInitTypeDef   RCC_PeriphCLKInitStruct = {0};
+	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+
+	/* ## - 1 - 使能LPTIM时钟和GPIO时钟 ####################################### */
+	__HAL_RCC_LPTIM1_CLK_ENABLE();
+
+	/* ## - 2 - 配置LPTIM时钟，可以选择LSE，LSI或者PCLK ######################## */	
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
+	RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+
+	HAL_RCC_OscConfig(&RCC_OscInitStruct);
+	
+	RCC_PeriphCLKInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LPTIM1;
+	RCC_PeriphCLKInitStruct.Lptim1ClockSelection = RCC_LPTIM1CLKSOURCE_LSE;
+	 
+	HAL_RCCEx_PeriphCLKConfig(&RCC_PeriphCLKInitStruct);
+
+	/* ## - 3 - 配置LPTIM ######################################################## */		
+	LptimHandle.Instance = LPTIM1;
+	LptimHandle.Init.Clock.Source    = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC; /* 对应寄存器CKSEL，选择内部时钟源 */
+	LptimHandle.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV128;        /* 设置LPTIM时钟分频 */
+	LptimHandle.Init.CounterSource   = LPTIM_COUNTERSOURCE_INTERNAL;/* LPTIM计数器对内部时钟源计数 */
+	LptimHandle.Init.Trigger.Source  = LPTIM_TRIGSOURCE_SOFTWARE;   /* 软件触发 */ 
+	LptimHandle.Init.OutputPolarity  = LPTIM_OUTPUTPOLARITY_HIGH;   /* 超时模式用不到这个配置 */
+	LptimHandle.Init.UpdateMode      = LPTIM_UPDATE_IMMEDIATE;      /* 比较寄存器和ARR自动重载寄存器选择更改后立即更新 */ 
+	LptimHandle.Init.Input1Source    = LPTIM_INPUT1SOURCE_GPIO;     /* 外部输入1，本配置未使用 */
+	LptimHandle.Init.Input2Source    = LPTIM_INPUT2SOURCE_GPIO;     /* 外部输入2，本配置未使用 */
+
+	HAL_LPTIM_Init(&LptimHandle);
+
+	/* ## - 4 - 配置LPTIM ######################################################## */		
+	/* 配置中断优先级并使能中断 */
+	HAL_NVIC_SetPriority(LPTIM1_IRQn, 6, 0);
+	HAL_NVIC_EnableIRQ(LPTIM1_IRQn);
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: bsp_StartLPTIM
+*	功能说明: 启动LPTIM
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void bsp_StartLPTIM(void)
+{/*
+	   ARR是自动重装寄存器，对应函数HAL_LPTIM_TimeOut_Start_IT的第2个参数
+	   Compare是比较寄存器，对应函数HAL_LPTIM_TimeOut_Start_IT的第3个参数
+
+	   ---------------------
+	   LSE = 32768Hz
+	   分频设置为LPTIM_PRESCALER_DIV8，即8分频（函数bsp_InitLPTIM里面做的初始化配置）
+	   ARR自动重载寄存器 = 32768
+	   实际测试发现溢出中断与ARR寄存器无关，全部由第3个参数，Compare寄存器决定
+	
+	   LPTIM的计数器计数1次的时间是 1 / (32768 / 128) = 128 /32768。1s 计次256
+	   第三个参数配置的是61439，那么计数到61439就是 (61439 + 1)*（128 /32768） = 240秒，计算的时候要加1。
+	*/
+	
+	HAL_LPTIM_TimeOut_Start_IT(&LptimHandle, 0, 61439);
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: LPTIM1_IRQHandler
+*	功能说明: LPTIM1中断服务程序
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void LPTIM1_IRQHandler(void)
+{
+	if((LPTIM1->ISR & LPTIM_FLAG_CMPM) != RESET)
+	{
+		/* 清除比较匹配中断 */
+		LPTIM1->ICR = LPTIM_FLAG_CMPM;
+		g_WakeUpCnt++;
+
+		if(g_WakeUpCnt >= 5)//4*5=20min
+		{
+			if(g_CallHourFlag == 0)
+			{
+				g_CallHourFlag = 1;
+			}
+			g_WakeUpCnt = 0;
+		}
+	
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+

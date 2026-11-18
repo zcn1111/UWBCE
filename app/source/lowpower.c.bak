@@ -1,0 +1,300 @@
+
+#include "bsp.h"
+#include "main.h"
+
+uint8_t g_ShouldResetRTCAlarmFlag;
+bool g_InLowpowerMode;
+
+uint8_t g_5VPowerOn;			
+uint8_t g_CelluarPowerOn;
+uint8_t g_3V3PowerOn;
+uint8_t g_ToolPowerOn;
+uint8_t g_12VPowerOn;
+uint8_t g_ReaderPowerOn;
+
+uint32_t g_BTPowerOnDelay;
+uint32_t g_LockPowerOnDelay;
+
+uint32_t g_CelluarPowerOffDelay;
+uint32_t g_CelluarPowerOnDelay;
+uint32_t g_ShouldEnterLowpowerDelay;
+
+/**
+ * @brief	PowerContrlInit
+ *
+ * @param	初始化电源控制
+ *
+ * @return  void
+ */
+void PowerContrlInit(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+	__HAL_RCC_GPIOC_CLK_ENABLE();	
+	
+	/*5V*/
+	GPIO_Initure.Pin = GPIO_PIN_6;
+	GPIO_Initure.Mode = GPIO_MODE_OUTPUT_PP;			/* 推挽输出 */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	GPIO_Initure.Speed = GPIO_SPEED_FREQ_HIGH;	/* GPIO速度等级 */
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);	
+//	PWR_5V_DISABLE();
+	PWR_5V_ENABLE();
+	g_5VPowerOn = 1;
+	delay_ms(50);
+	
+	/*CELLUAR*/
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = GPIO_PIN_15;	
+	HAL_GPIO_Init(GPIOA, &GPIO_Initure);
+//	PWR_CELLUAR_DISABLE();
+	PWR_CELLUAR_ENABLE();
+	g_CelluarPowerOn = 1;
+	g_CelluarPowerOnDelay = TIM2->CNT;
+	delay_ms(50);
+//	CELLUAR_PWRKEY_ENABLE();
+	
+	/*3v3*/
+	GPIO_Initure.Pin = GPIO_PIN_2;
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);
+//	PWR_3V3_DISABLE();
+	PWR_3V3_ENABLE();
+	g_3V3PowerOn = 1;
+	g_BTPowerOnDelay = TIM2->CNT;
+	delay_ms(50);
+		
+	/*tool*/
+	GPIO_Initure.Pin = GPIO_PIN_2;
+	HAL_GPIO_Init(GPIOB, &GPIO_Initure);
+//	PWR_TOOL_DISABLE();
+	PWR_TOOL_ENABLE();
+	g_ToolPowerOn = 1;
+	delay_ms(50);	
+	
+	/*12V*/
+	GPIO_Initure.Pin = GPIO_PIN_7;
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);
+//	PWR_12V_DISABLE();
+	PWR_12V_ENABLE();
+	g_12VPowerOn = 1;
+	g_LockPowerOnDelay = TIM2->CNT;
+	delay_ms(50);
+	
+	/*READER*/
+	GPIO_Initure.Pin = GPIO_PIN_5;
+	HAL_GPIO_Init(GPIOB, &GPIO_Initure);
+//	PWR_READER_ENABLE();
+//	delay_ms(100);
+	if(g_SysPar.locktype == DJ02)
+	{
+		PWR_READER_DISABLE();
+		g_ReaderPowerOn = 0;
+	}
+	else
+	{
+		PWR_READER_ENABLE();
+		g_ReaderPowerOn = 1;
+	}
+}
+
+void PowerContrlDeInit(void)
+{
+	//GPIO端口设置
+	GPIO_InitTypeDef GPIO_Initure;
+	
+	/* 打开GPIO时钟 */
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+	__HAL_RCC_GPIOC_CLK_ENABLE();	
+	
+	/*5V*/
+	GPIO_Initure.Pin = GPIO_PIN_6;
+	GPIO_Initure.Mode = GPIO_MODE_ANALOG;			/* 推挽输出 */
+	GPIO_Initure.Pull = GPIO_NOPULL;					/* 上下拉电阻不使能 */
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);	
+	
+	/*CELLUAR*/
+	/* 配置引脚为推挽输出 */
+	GPIO_Initure.Pin = GPIO_PIN_15;	
+	HAL_GPIO_Init(GPIOA, &GPIO_Initure);
+	
+	/*3v3*/
+	GPIO_Initure.Pin = GPIO_PIN_2;
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);
+		
+	/*tool*/
+	GPIO_Initure.Pin = GPIO_PIN_All;
+//	GPIO_Initure.Pin = GPIO_PIN_2;
+	HAL_GPIO_Init(GPIOB, &GPIO_Initure);
+	__HAL_RCC_GPIOB_CLK_DISABLE();
+	/*12V*/
+	GPIO_Initure.Pin = GPIO_PIN_7;
+	HAL_GPIO_Init(GPIOC, &GPIO_Initure);
+	
+	/*READER*/
+	GPIO_Initure.Pin = GPIO_PIN_5;
+	HAL_GPIO_Init(GPIOB, &GPIO_Initure);
+}
+
+/**
+ * @brief	EnterStopMode
+ *
+ * @param	进入低功耗
+ *
+ * @return  void
+ */
+void EnterStopMode(void)
+{
+	__HAL_RCC_PWR_CLK_ENABLE();
+	
+	HAL_UART_DeInit(&UART1_Handler);//关闭串口;
+	HAL_UART_DeInit(&UART2_Handler);//关闭串口;
+	HAL_UART_DeInit(&UART3_Handler);//关闭串口;
+	HAL_UART_DeInit(&LPUART1_Handler);//关闭串口;
+	HAL_TIM_Base_DeInit(&TIM6_Handler);//关闭定时器6
+	HAL_TIM_Base_DeInit(&TIM7_Handler);//关闭定时器6
+	HAL_TIM_Base_DeInit(&TIM2_Handler);//关闭定时器6
+	DeInitSPI(&hspi1);
+	CELLUAR_PWRKEY_DISABLE();
+	delay_ms(3000);
+	if(g_5VPowerOn == 1)
+	{
+		PWR_5V_DISABLE();
+		g_5VPowerOn = 0;
+	}
+	if(g_ToolPowerOn == 1)
+	{
+		PWR_TOOL_DISABLE();
+		g_ToolPowerOn = 0;
+	}
+	if(g_3V3PowerOn == 1)
+	{
+		PWR_3V3_DISABLE();
+		g_3V3PowerOn = 0;
+	}
+	if(g_CelluarPowerOn == 1)
+	{
+		PWR_CELLUAR_DISABLE();
+		g_CelluarPowerOn = 0;
+	}
+	if(g_12VPowerOn == 1)
+	{
+		LOCK_OPENDISABLE();
+		PWR_12V_DISABLE();
+		g_12VPowerOn = 0;
+	}
+	if(g_ReaderPowerOn == 1)
+	{
+		PWR_READER_DISABLE();
+		g_ReaderPowerOn = 0;
+	}
+	g_InLowpowerMode = true;
+	LED_OFF();
+	DeInitCelluarGpio();
+	DeInitSIMSwitchGpio();
+	DeInitBluetoothIO();
+	DeInitReaderGpio();
+	DeInitLockGpio();
+	DeInitLED();
+	PowerContrlDeInit();
+	HAL_DBGMCU_DisableDBGStopMode();
+//	HAL_DBGMCU_EnableDBGStopMode();
+	__HAL_RCC_GPIOB_CLK_DISABLE();
+	SysTick->CTRL = 0x00;			//关闭滴答定时器
+	SysTick->VAL = 0x00;			//清空
+//	bsp_StartLPTIM();
+	HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
+}
+
+/**
+ * @brief	ExitStopMode
+ *
+ * @param	低功耗模式唤醒
+ *
+ * @return  void
+ */
+void ExitStopMode(void) 
+{
+	__HAL_RCC_PWR_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+	SystemClock_Config();
+	delay_init(24);
+//	if(g_CalHourFlag == 1 || g_CheckTool == 1)
+	{		
+		InitTimer2();
+		InitLockGpio();
+		InitBluetoothIO();
+		InitReaderGpio();
+		InitUart();												//初始化串口，USART1-LORA USART2-TOOL 若为接收1号也初始化LPUART1-DTU
+		W25qxx_Init();
+		InitSIMSwitchGpio();
+		PowerContrlInit();										//控制LORA、DTU、Tool上电	
+		InitCelluarGpio();
+		InitSysTime();	
+		TIM6Init(10000-1, 2400-1);  							//定时器6定时1s		
+		InitNet();
+		InitLED();
+		TIM7Init(1000-1, 2400-1);
+		JudgeEffectiveUnit();
+		if(g_HaveEffectiveTime || g_SysPar.locktype == DJ09)
+		{
+			if(g_ReaderPowerOn == 0)
+			{
+				PWR_READER_ENABLE();
+				g_ReaderPowerOn = 1;
+			}
+		}
+		InitReaderVar();
+		g_ShouldEnterLowpowerDelay = TIM2->CNT;	
+		g_InLowpowerMode = false;
+		g_ShouldResetRTCAlarmFlag = 0;
+	}
+}
+
+/**
+ * @brief	PowerContrl
+ *
+ * @param	电源控制
+ *
+ * @return  void
+ */
+void PowerContrl(void)
+{	
+	if(g_CheckTool == 0 && JudgeSomeDelayInProOk(g_ShouldEnterLowpowerDelay,Delay30Sec) == true && g_BTLinkStatus == 0)
+	{
+		if(g_CelluarPowerOn == 0 || (g_CelluarPowerOn == 1 && JudgeSomeDelayInProOk(g_ShouldEnterLowpowerDelay,(g_SysPar.keeponlinetime+1)*Delay1Min) == true))
+		{
+			EnterStopMode();
+			ExitStopMode();
+		}
+	}
+	
+	if(!g_InLowpowerMode && g_ShouldResetRTCAlarmFlag == 1)
+	{
+		ExRtcReadTime(&g_SysTime);
+		ResetRtcAlarm();
+		g_ShouldResetRTCAlarmFlag = 0;
+		g_ShouldEnterLowpowerDelay = TIM2->CNT;
+		if(g_CelluarPowerOn == 0)
+		{
+			PWR_CELLUAR_ENABLE();
+			delay_ms(50);
+			InitCelluarGpio();
+			g_CelluarPowerOn = 1;
+			g_CelluarPowerOnDelay = TIM2->CNT;
+			CelluarStep = STA_PWR_ON;
+			InitNet();
+		}
+	}
+}
+
+
+
+
+
+
+

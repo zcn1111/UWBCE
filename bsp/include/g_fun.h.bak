@@ -1,0 +1,46 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __G_FUN_H
+#define __G_FUN_H
+
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "bsp_iicrtc.h"
+
+#define INVALIDTIME 0xFFFFFFFF
+
+uint8_t CheckSum(uint16_t len_Array,uint8_t *Array);
+uint8_t CheckSumNoC(uint8_t *Array,uint16_t len_Array);
+uint16_t CRC16(uint8_t* pchMsg, uint16_t wDataLen);
+bool CheckCRC16(uint8_t* pchMsg, uint16_t wDataLen);
+uint8_t XorFunction(uint32_t len, uint8_t *data);
+bool CheckNumIsBCD(uint8_t *data,uint32_t len);
+uint8_t CheckSumNoFan(uint16_t len_Array,uint8_t *Array,uint8_t BeforeSum);
+void Uint32ToStr(uint32_t Value,uint8_t *strOut);
+uint32_t StrToUint32(uint8_t *strIn);
+char Hex2Asc(uint8_t hex);
+uint8_t Asc2Hex(char asc);
+void Bcd2Asc(uint8_t bcd,uint8_t *retstr);
+uint8_t Asc2Bcd(char ascH, char ascL);
+uint8_t CharSwap(uint8_t chr);
+uint32_t GetValFromString(uint8_t *ptr,uint8_t len);
+uint8_t StrNcmpString(uint8_t *string1,uint8_t *string2,uint16_t len,uint16_t *pos);
+uint16_t Get16ValueFrom8Buf(uint8_t *buf,uint8_t no);
+void YearToStr(uint16_t Year, char* pStr);
+void HexTimeToStr(uint16_t val, char* pStr);
+void BcdTimeToStr(uint16_t val, char* pStr);
+uint16_t StrToYear(char* pStr);
+uint16_t StrToTime(char* pStr);
+void TimeHexToBcd(DATETIME *dest ,uint8_t *src);
+void TimeBcdToHex(DATETIME *dest ,uint8_t *src);
+uint8_t HexToBCD(uint8_t val);	
+uint8_t BCDToHex(uint8_t val);	
+uint32_t CalHowManyMinuteFromNow( DATETIME sNowTime );
+uint32_t CalHowManyDateFrom2000_01_01( DATETIME sNowTime );
+uint32_t Sys_CalTimeDiff( DATETIME sStopTimeHex,DATETIME sStartTimeHex,uint8_t CanOnlyToDate,uint8_t changtime);
+
+int gsmEncode7bit(const char* pSrc, unsigned char* pDst, int nSrcLength);
+int gsmDecode7bit(const unsigned char* pSrc, char* pDst, int nSrcLength);
+
+
+#endif /* __G_FUN_H */

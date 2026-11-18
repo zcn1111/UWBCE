@@ -1,0 +1,17 @@
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __BSP_ADC_H
+#define __BSP_ADC_H
+
+#include "stdint.h"
+
+extern uint8_t g_BatVal;
+extern uint8_t g_AlarmBatVal;
+
+void ADCInit(void);
+uint8_t Get_Adc_Average(uint32_t ch, uint8_t times);
+
+#endif   /**__BSP_ADC_H**/
+
+
+
+

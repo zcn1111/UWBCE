@@ -1,0 +1,72 @@
+#include "bsp.h"
+#include "main.h"
+
+uint32_t freq;
+
+int main(void)
+{	
+	SCB->VTOR = FLASH_BASE | 0x10000;//设置偏移量
+	
+	HAL_Init();
+	SystemClock_Config();
+	ENABLE_INT();
+	delay_init(24);	
+	freq = HAL_RCC_GetSysClockFreq();
+	
+	/* Initialize cryptographic library */
+	if(cmox_initialize(NULL) != CMOX_INIT_SUCCESS)
+	{
+//		Error_Handler();
+	}
+	InitTimer2();											//定时器2定时10us
+	W25qxx_Init();											//初始化FLASH
+	ChangeVersionFormat();	
+	ReadSysPar();											//读取系统参数
+	InitUart();												//初始化串口
+	InitBluetoothIO();
+	InitLockGpio();
+	InitReaderGpio();
+	InitKeyGpio();	
+	InitSIMSwitchGpio();
+	PowerContrlInit();										//控制LORA、DTU、Tool上电	
+	InitCelluarGpio();
+	InitSysTime();											//初始化RTC	
+	g_TimeNoAdjustFlag = true;         						//需要给DTU要时间	
+	TIM6Init(10000-1, 2400-1);  							//定时器7定时1s	
+	
+	ADCInit();												//初始化电池采样
+	InitLED();												//初始化LED
+	TIM7Init(800-1, 2400-1);
+	ReadDTUSysPar();										//从FLASH中读本机号和IP等DTU参数
+	CheckToolInit();										//初始化客服工具检测IO
+	InitNet();
+	InitReaderVar();
+	InitLockVar();
+	HAL_UART_DeInit(&LPUART1_Handler);
+	while(1)
+	{		
+		CheckTool();
+		CheckBTConnetStatus();
+		
+		PowerContrl();
+		
+		LedCtrl();
+		
+		EC20_Process();
+		
+		ToolProcess();
+		
+		if(!g_BTInitOk)
+			InitBluetooth();
+		else
+			BluetoothPro();
+		
+		ReaderPro();
+		
+		if(g_SysPar.locktype == DJ02)
+			LockControl_DJ02();
+		else
+			LockControl_DJ09();
+	}
+}
+
