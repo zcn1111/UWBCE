@@ -37,7 +37,7 @@
 
 #define MAX_AHCHOR_NUMBER               4       //系统内最大基站数量，取4或者8，比如实际3个取4，实际6个取8
 #define MAX_TAG_NUMBER_SW2_OFF          5       //ULM1、LD150、ld600模块，2号拨码off时最大标签个数
-#define MAX_TAG_NUMBER_SW2_ON           5       //ULM1、LD150、ld600模块，2号拨码on时最大标签个数
+#define MAX_TAG_NUMBER_SW2_ON           1       //ULM1、LD150、ld600模块，2号拨码on时最大标签个数
 
 /* 天线延时
  * 计算距离结果比实际距离小，需要增大距离，则减小这个数
