@@ -21,6 +21,7 @@ DbgResult_t Cmd_ReadUwbAnchorsInfo(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetDevConfig(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetSolutionMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetShowMode(uint8_t Argc, char *Argv[]);
+DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetUserdata(uint8_t Argc, char *Argv[]);
 
 
@@ -631,27 +632,30 @@ DbgResult_t Cmd_SetSolutionMode(uint8_t Argc, char *Argv[])
 /* 设置统计模式 */
 DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[])
 {
-	uint8_t mode=0;
+	long mode;
+	char *end;
 	
-	/* 检查参数个数 不含参数显示当前解算模式 */
+	/* 不含参数时显示当前统计模式 */
 	if (Argc == 0)
 	{
 		debug_printf("Mode = %d\r\n", g_DevConfig.StatisticsMode);
+		return DBGRET_OK;
 	}
 	
-	/* 配置参数 */
-	if (Argc >= 1)
+	if (Argc != 1)
 	{
-		mode = atol(Argv[1]);
-		if ((mode >= 0) && (mode <= 1))
-		{
-			g_DevConfig.StatisticsMode = mode;
-			debug_printf("Set statistic mode OK!\r\n");
-			return DBGRET_OK;
-		}
+		return DBGRET_ERR_ARG_ILLEGAL;
 	}
 	
-	return DBGRET_ERR_ARG_ILLEGAL;
+	mode = strtol(Argv[1], &end, 10);
+	if ((end == Argv[1]) || (*end != '\0') || (mode < 0) || (mode > 1))
+	{
+		return DBGRET_ERR_ARG_ILLEGAL;
+	}
+
+	g_DevConfig.StatisticsMode = (uint8_t)mode;
+	debug_printf("Set statistic mode OK!\r\n");
+	return DBGRET_OK;
 }
 
 /* 设置统计模式 */

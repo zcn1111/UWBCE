@@ -38,6 +38,7 @@ typedef enum
 	X("setconfig",	Cmd_SetDevConfig)		\
 	X("setmode",	Cmd_SetSolutionMode)	\
 	X("setshow",	Cmd_SetShowMode)		\
+	X("setstat",	Cmd_SetStatMode)		\
 	X("userdata",	Cmd_SetUserdata)
 
 /* 自动生成枚举，CMD_COUNT = 命令总数 */
