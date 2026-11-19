@@ -896,11 +896,6 @@
               <FileType>1</FileType>
               <FilePath>..\app\dw_app\instance_anchor.c</FilePath>
             </File>
-            <File>
-              <FileName>uwb_diag.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\app\dw_app\uwb_diag.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
