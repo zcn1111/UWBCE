@@ -63,5 +63,6 @@ bool uwb_diag_tag_run(uint32_t rounds);
 bool uwb_diag_tag_poll_allowed(bool starting_poll);
 bool uwb_diag_tag_run_controlled(void);
 void uwb_diag_rx_fault(uwb_diag_rx_t *rx, uint32_t status);
+void uwb_diag_tag_rx_sample(uint8_t slot, const dwt_rxdiag_t *diag);
 
 #endif

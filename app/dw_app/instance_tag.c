@@ -200,6 +200,7 @@ void tag_app(void)
         case STA_RECV_RESP:
         {
             static uint8_t no_resp_count = 0;   //未接收到任何基站回复的周期计数
+            bool diag_resp_match = false;
             if (g_uwb_diag.active)
             {
                 uint8_t slot = MAX_AHCHOR_NUMBER - resp_expect;
@@ -214,6 +215,7 @@ void tag_app(void)
                         (rx_buffer[RECEIVER_SHORT_ADD_IDX + 1] == 0))
                     {
                         rx->ok++;
+                        diag_resp_match = true;
                         if (!diag_resp_seen)
                         {
                             g_uwb_diag.tag.resp_rounds++;
@@ -257,6 +259,10 @@ void tag_app(void)
 						
                         dwt_rxdiag_t rx_diag;
                         dwt_readdiagnostics(&rx_diag);//读取信号强度等诊断信息
+                        if (diag_resp_match)
+                        {
+                            uwb_diag_tag_rx_sample(recv_anc_id, &rx_diag);
+                        }
 						rx_power = rx_diag.rxPower;
 						rssi[recv_anc_id] = rx_power;
                     }

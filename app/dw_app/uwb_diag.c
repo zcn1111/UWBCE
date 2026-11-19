@@ -2,6 +2,17 @@
 
 uwb_diag_t g_uwb_diag;
 
+typedef struct
+{
+    uint32_t samples;
+    float rssi_min;
+    float rssi_max;
+    float rssi_sum;
+    uint64_t preamble_sum;
+} uwb_diag_rx_quality_t;
+
+static uwb_diag_rx_quality_t tag_rx_quality[MAX_AHCHOR_NUMBER];
+
 static enum
 {
     TAG_RUN_CONTINUOUS,
@@ -15,6 +26,7 @@ static uint32_t tag_run_limit;
 static void uwb_diag_reset(void)
 {
     memset(&g_uwb_diag, 0, sizeof(g_uwb_diag));
+    memset(tag_rx_quality, 0, sizeof(tag_rx_quality));
     g_uwb_diag.start_ms = HAL_GetTick();
     g_uwb_diag.active = 1;
 }
@@ -46,6 +58,29 @@ void uwb_diag_rx_fault(uwb_diag_rx_t *rx, uint32_t status)
     rx->filter_reject += (status & SYS_STATUS_AFFREJ) != 0;
     rx->lde_error += (status & SYS_STATUS_LDEERR) != 0;
     rx->other += (status & (SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)) == 0;
+}
+
+void uwb_diag_tag_rx_sample(uint8_t slot, const dwt_rxdiag_t *diag)
+{
+    /* RX power estimation divides by the preamble count and uses CIR power. */
+    if ((diag->rxPreamCount == 0) || (diag->maxGrowthCIR == 0))
+    {
+        return;
+    }
+
+    uwb_diag_rx_quality_t *quality = &tag_rx_quality[slot];
+    float rssi = diag->rxPower;
+    if ((quality->samples == 0) || (rssi < quality->rssi_min))
+    {
+        quality->rssi_min = rssi;
+    }
+    if ((quality->samples == 0) || (rssi > quality->rssi_max))
+    {
+        quality->rssi_max = rssi;
+    }
+    quality->samples++;
+    quality->rssi_sum += rssi;
+    quality->preamble_sum += diag->rxPreamCount;
 }
 
 static void uwb_diag_print_rx(const char *stage, const uwb_diag_rx_t *rx)
@@ -91,6 +126,15 @@ static bool uwb_diag_report(void)
             char stage[16];
             snprintf(stage, sizeof(stage), "resp_rx_A%u", slot);
             uwb_diag_print_rx(stage, &g_uwb_diag.tag.resp[slot]);
+            const uwb_diag_rx_quality_t *quality = &tag_rx_quality[slot];
+            if (quality->samples != 0)
+            {
+                debug_printf("UWB_DIAG resp_quality_A%u samples=%lu "
+                             "rssi_dbm_min=%.1f rssi_dbm_avg=%.1f rssi_dbm_max=%.1f rxpacc_avg=%.1f\r\n",
+                             slot, (unsigned long)quality->samples, (double)quality->rssi_min,
+                             (double)(quality->rssi_sum / quality->samples), (double)quality->rssi_max,
+                             (double)quality->preamble_sum / quality->samples);
+            }
         }
         uwb_diag_print_tx("final_tx", &g_uwb_diag.tag.final);
     }
