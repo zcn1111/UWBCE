@@ -1,4 +1,5 @@
 #include "instance.h"
+#include "uwb_diag.h"
 
 #if defined(L051_DEV)
 #include "lowpower.h"
@@ -24,6 +25,9 @@ static uint64_t final_tx_ts;
 /* 发送和接收数据中断标志 */
 static volatile uint8_t rx_status = RX_WAIT;
 static volatile uint8_t tx_status = TX_WAIT;
+static volatile uint32_t rx_event_status;
+static volatile uint16_t rx_frame_len;
+static uint8_t diag_resp_seen;
 
 static uint8_t resp_valid = 0x00;               //基站数据有效标志
 uint32 diff_time;                               //标签增加发起测距随机时间，避免冲突
@@ -34,10 +38,17 @@ static uint32_t led_time = 0;
 
 void tag_app(void)
 {
+    static uint8_t resp_recved = 0;     //单轮有效响应计数
+
     switch (state)
     {
         case STA_SEND_POLL:  //打包和发送poll消息
         {
+            if (!uwb_diag_tag_poll_allowed(true))
+            {
+                state = STA_IDLE;
+                break;
+            }
             if(inst_slot_number > 1)
             {
                 diff_time += (tag_id + 1); //产生随机时间避免一直冲突     
@@ -55,6 +66,8 @@ void tag_app(void)
             no_move_to_sleep(POLL_TO_SLEEP);
 #endif            
             range_nb++;
+            diag_resp_seen = 0;
+            UWB_DIAG_INC(g_uwb_diag.tag.rounds);
             /* poll数据打包 */
             tx_poll_msg[SEQ_NB_IDX] = frame_seq_nb++;  
             tx_poll_msg[PANID_IDX] = (uint8_t)PAN_ID; 
@@ -88,6 +101,7 @@ void tag_app(void)
 			/* 调用发送失败 */
             if(ret == DWT_ERROR)
             {
+                UWB_DIAG_INC(g_uwb_diag.tag.poll.start_fail);
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突      
                 state = STA_IDLE;
                 break;
@@ -105,12 +119,14 @@ void tag_app(void)
 			}
 			if (tx_err)
 			{
+                UWB_DIAG_INC(g_uwb_diag.tag.poll.completion_timeout);
 				dwt_forcetrxoff();
 				tx_status = TX_WAIT;
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突      
 				state = STA_IDLE;
                 break;
 			}
+            UWB_DIAG_INC(g_uwb_diag.tag.poll.sent);
             tx_status = TX_WAIT;                                //清标志
             poll_tx_ts = get_tx_timestamp_u64();                //取得poll_tx时间戳
             resp_expect = MAX_AHCHOR_NUMBER;                    //发送poll消息后，等待最大基站数量个resp消息回复
@@ -131,6 +147,7 @@ void tag_app(void)
             ret = dwt_rxenable(DWT_START_RX_DELAYED);   //延时开启接收机
             if(ret == DWT_ERROR)
             {
+                UWB_DIAG_INC(g_uwb_diag.tag.resp[0].late);
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突      
 				state = STA_IDLE;
                 break;
@@ -161,9 +178,20 @@ void tag_app(void)
             {
                 state = STA_RECV_RESP;
             }
-            if(portGetTickCnt() >= (range_time + 50))  //超时没有中断信号，故障，重启
+            if(portGetTickCnt() >= (range_time + 50))  //超时没有中断信号
             {
-                HAL_NVIC_SystemReset();  //重启
+                if (!uwb_diag_tag_run_controlled())
+                {
+                    HAL_NVIC_SystemReset();
+                }
+                /* Recover the radio without losing the requested round limit. */
+                UWB_DIAG_INC(g_uwb_diag.tag.rx_irq_timeout);
+                dwt_forcetrxoff();
+                dwt_rxreset();
+                rx_status = RX_WAIT;
+                resp_recved = 0;
+                next_period_time = portGetTickCnt();
+                state = STA_IDLE;
             }
         }
 		break;
@@ -171,10 +199,40 @@ void tag_app(void)
 		/* 接收Resp帧 */
         case STA_RECV_RESP:
         {
-            static uint8_t resp_recved = 0;     //单slot内接收到的resp个数，用于判定如果1个resp没收到则不发送final
             static uint8_t no_resp_count = 0;   //未接收到任何基站回复的周期计数
+            if (g_uwb_diag.active)
+            {
+                uint8_t slot = MAX_AHCHOR_NUMBER - resp_expect;
+                uwb_diag_rx_t *rx = &g_uwb_diag.tag.resp[slot];
+                if (rx_status == RX_OK)
+                {
+                    if ((rx_frame_len == RESP_MSG_LEN + FCS_LEN) &&
+                        (rx_buffer[FUNC_CODE_IDX] == FUNC_CODE_RESP) &&
+                        (rx_buffer[RANGE_NB_IDX] == range_nb) &&
+                        (rx_buffer[SENDER_SHORT_ADD_IDX] == slot) &&
+                        (rx_buffer[RECEIVER_SHORT_ADD_IDX] == tag_id) &&
+                        (rx_buffer[RECEIVER_SHORT_ADD_IDX + 1] == 0))
+                    {
+                        rx->ok++;
+                        if (!diag_resp_seen)
+                        {
+                            g_uwb_diag.tag.resp_rounds++;
+                            diag_resp_seen = 1;
+                        }
+                    }
+                    else
+                    {
+                        rx->rejected++;
+                    }
+                }
+                else if ((rx_status == RX_TIMEOUT) || (rx_status == RX_ERROR))
+                {
+                    uwb_diag_rx_fault(rx, rx_event_status);
+                }
+            }
             if((rx_status == RX_OK) && (rx_buffer[FUNC_CODE_IDX] != FUNC_CODE_RESP))    //接收消息成功，但是消息不是resp消息则直接进入IDLE
             {
+                UWB_DIAG_INC(g_uwb_diag.tag.unexpected_frame_abort);
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突      
                 state = STA_IDLE;
             }
@@ -217,6 +275,7 @@ void tag_app(void)
                 {
                     if(resp_recved == 0)//如果一个resp也没收到，则不发final，直接进入IDLE
                     {
+                        UWB_DIAG_INC(g_uwb_diag.tag.no_resp);
                         if((sos == 0) && (alarm == 0))
                         {
                         }
@@ -263,6 +322,7 @@ void tag_app(void)
                     int ret = dwt_rxenable(DWT_START_RX_DELAYED);       //延时开启接收机
                     if(ret == DWT_ERROR)
                     {
+                        UWB_DIAG_INC(g_uwb_diag.tag.resp[MAX_AHCHOR_NUMBER - resp_expect].late);
                         //next_period_time = range_time + inst_one_slot_time * inst_slot_number;//设置下个周期开始时间
                         next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突
                         state = STA_IDLE;
@@ -318,6 +378,7 @@ void tag_app(void)
             int ret = dwt_starttx(DWT_START_TX_DELAYED);      //延时发送
             if(ret == DWT_ERROR)
             {
+                UWB_DIAG_INC(g_uwb_diag.tag.final.start_fail);
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number;//设置下个周期开始时间
                 state = STA_IDLE;
                 break;
@@ -329,6 +390,7 @@ void tag_app(void)
 			{
 				if (JudgeTick(tx_wait, 10) == true)	//10ms超时
 				{
+                    UWB_DIAG_INC(g_uwb_diag.tag.final.completion_timeout);
 					dwt_forcetrxoff();
 					tx_status = TX_WAIT;
 					range_status = RANGE_ERROR;
@@ -340,6 +402,7 @@ void tag_app(void)
 			}
 			if (tx_status != TX_WAIT)	//检测正常
 			{
+                UWB_DIAG_INC(g_uwb_diag.tag.final.sent);
 				tx_status = TX_WAIT;                    //清标志
 				range_status = RANGE_TWR_OK;            //设置TWR成功测距标志，在dw_main.c里判断打包串口输出
 				next_period_time = range_time + inst_one_slot_time * inst_slot_number + tagSleepCorrection_ms;  //设置下个周期开始时间
@@ -351,6 +414,10 @@ void tag_app(void)
         
         case STA_IDLE:
         {
+            if (!uwb_diag_tag_poll_allowed(false))
+            {
+                break;
+            }
 #if defined(L051_DEV)
 //            read_key();
 #endif
@@ -415,6 +482,7 @@ void tag_app(void)
  */
 void tag_rx_ok_cb(const dwt_cb_data_t *cb_data)
 {
+    rx_frame_len = cb_data->datalength;
     rx_status = RX_OK;
     if (cb_data->datalength <= FRAME_LEN_MAX)
     {
@@ -436,8 +504,8 @@ void tag_rx_ok_cb(const dwt_cb_data_t *cb_data)
  */
 void tag_rx_to_cb(const dwt_cb_data_t *cb_data)
 {
+    rx_event_status = cb_data->status;
     rx_status = RX_TIMEOUT;
-    UNUSED(cb_data);
 
 }
 
@@ -452,8 +520,8 @@ void tag_rx_to_cb(const dwt_cb_data_t *cb_data)
  */
 void tag_rx_err_cb(const dwt_cb_data_t *cb_data)
 {
+    rx_event_status = cb_data->status;
     rx_status = RX_ERROR;
-    UNUSED(cb_data);
 }
 
 /*! ------------------------------------------------------------------------------------------------------------------

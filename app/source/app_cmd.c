@@ -1,8 +1,10 @@
 
 #include "BSP.h"
 #include "app_cmd.h"
+#include <errno.h>
 #include "string.h"
 #include "instance.h"
+#include "uwb_diag.h"
 #include "app_glovar.h"
 #include "uwb_gps_transform.h"
 
@@ -22,6 +24,7 @@ DbgResult_t Cmd_SetDevConfig(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetSolutionMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetShowMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[]);
+DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetUserdata(uint8_t Argc, char *Argv[]);
 
 
@@ -656,6 +659,57 @@ DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[])
 	g_DevConfig.StatisticsMode = (uint8_t)mode;
 	debug_printf("Set statistic mode OK!\r\n");
 	return DBGRET_OK;
+}
+
+DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
+{
+	if ((Argc == 2) && (strcasecmp(Argv[1], "run") == 0))
+	{
+		const char *count_arg = Argv[2];
+		unsigned long value;
+		uint32_t rounds;
+
+		if (instance_mode != TAG)
+		{
+			debug_printf("UWB_DIAG run requires tag role.\r\n");
+			return DBGRET_ERR_OTHER;
+		}
+		if ((*count_arg == '\0') || (strspn(count_arg, "0123456789") != strlen(count_arg)))
+		{
+			return DBGRET_ERR_ARG_ILLEGAL;
+		}
+		errno = 0;
+		value = strtoul(count_arg, NULL, 10);
+		rounds = (uint32_t)value;
+		if ((errno == ERANGE) || (value != rounds))
+		{
+			return DBGRET_ERR_ARG_OUTRANGE;
+		}
+		if (!uwb_diag_tag_run(rounds))
+		{
+			debug_printf("UWB_DIAG run already in progress.\r\n");
+			return DBGRET_ERR_OTHER;
+		}
+		return DBGRET_OK;
+	}
+	if (Argc != 1)
+	{
+		return DBGRET_ERR_ARG_ILLEGAL;
+	}
+	if (strcasecmp(Argv[1], "start") == 0)
+	{
+		if (!uwb_diag_start())
+		{
+			debug_printf("UWB_DIAG run already in progress.\r\n");
+			return DBGRET_ERR_OTHER;
+		}
+		return DBGRET_OK;
+	}
+	if (strcasecmp(Argv[1], "stop") == 0)
+	{
+		return uwb_diag_stop() ? DBGRET_OK : DBGRET_ERR_NODATA;
+	}
+	return DBGRET_ERR_ARG_ILLEGAL;
 }
 
 /* 设置统计模式 */
