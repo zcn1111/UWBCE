@@ -278,6 +278,7 @@ extern uint8_t range_nb;      			//每次range增加1(poll resp1~4 fianl维护�
 extern uint8_t recv_tag_id;
 extern uint8_t recv_anc_id;
 extern uint8_t range_status;
+extern uint8_t ShowRanging;
 extern float rx_power;
 extern float rssi[8];
 extern double g_tag_h;		//定位卡高度

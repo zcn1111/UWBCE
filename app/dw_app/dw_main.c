@@ -277,7 +277,8 @@ void ShowDevConfig(void)
 	len = strlen(g_DebugInfoBuf);
 	sprintf(g_DebugInfoBuf + len, "StatisticsMode = %d\r\n", g_DevConfig.StatisticsMode);//统计模式
 	len = strlen(g_DebugInfoBuf);
-	sprintf(g_DebugInfoBuf + len, "ShowSolution = %d\r\n", g_DevConfig.ShowSolution);	//显示解算结果
+	sprintf(g_DebugInfoBuf + len, "ShowSolution = %d\r\n",
+		instance_mode == TAG ? ShowRanging : g_DevConfig.ShowSolution);
 	len = strlen(g_DebugInfoBuf);
 	sprintf(g_DebugInfoBuf + len, "Anchor Height = %.3f\r\n", g_DevConfig.AnchorHeight);//基站高度
 	len = strlen(g_DebugInfoBuf);
@@ -1097,7 +1098,7 @@ uint8_t dw_CalcDistanceOrCoordinates(uint8_t Mode)
 		}
 	} /* 2维测距模式 */
 	
-	if (ret)
+	if (ret && (instance_mode != TAG || ShowRanging))
 	{
 		HAL_UART_Transmit(&UART_PORT, result_str, strlen, 500);		//输出测距结果
 	}

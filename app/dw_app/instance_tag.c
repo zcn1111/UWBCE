@@ -25,7 +25,7 @@ static uint64_t final_tx_ts;
 static volatile uint8_t rx_status = RX_WAIT;
 static volatile uint8_t tx_status = TX_WAIT;
 static volatile uint16_t rx_frame_len;
-static volatile uint32_t rx_timeout_status;
+static volatile uint32_t rx_event_status;
 
 static uint8_t resp_valid = 0x00;               //基站数据有效标志
 uint32 diff_time;                               //标签增加发起测距随机时间，避免冲突
@@ -45,6 +45,12 @@ typedef struct
     uint32_t other_frame;
     uint32_t rx_late;
     uint32_t no_irq;
+    uint32_t phr_error;
+    uint32_t fcs_error;
+    uint32_t rs_error;
+    uint32_t sfd_timeout;
+    uint32_t filter_reject;
+    uint32_t lde_error;
 } tag_diag_slot_t;
 
 static struct
@@ -81,13 +87,22 @@ static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
 
     if (rx_status == RX_TIMEOUT)
     {
-        if (rx_timeout_status & SYS_STATUS_RXPTO)
+        if (rx_event_status & SYS_STATUS_RXPTO)
             stats->preamble_timeout++;
         else
             stats->frame_timeout++;
     }
     else if (rx_status == RX_ERROR)
+    {
+        uint32_t status = rx_event_status;
         stats->rx_error++;
+        stats->phr_error += (status & SYS_STATUS_RXPHE) != 0;
+        stats->fcs_error += (status & SYS_STATUS_RXFCE) != 0;
+        stats->rs_error += (status & SYS_STATUS_RXRFSL) != 0;
+        stats->sfd_timeout += (status & SYS_STATUS_RXSFDTO) != 0;
+        stats->filter_reject += (status & SYS_STATUS_AFFREJ) != 0;
+        stats->lde_error += (status & SYS_STATUS_LDEERR) != 0;
+    }
     else if (valid_resp && rx_buffer[SENDER_SHORT_ADD_IDX] == slot)
         stats->resp_ok++;
     else
@@ -97,7 +112,7 @@ static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
 /* 汇总只在 STA_IDLE 输出，避免串口发送占用当前测距轮的时隙。 */
 static void tag_diag_report(void)
 {
-    char line[160];
+    char line[256];
     snprintf(line, sizeof(line),
         "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu\r\n",
         (unsigned long)tag_diag.polls, (unsigned long)tag_diag.poll_tx_ok,
@@ -109,11 +124,15 @@ static void tag_diag_report(void)
     {
         const tag_diag_slot_t *slot = &tag_diag.slots[i];
         snprintf(line, sizeof(line),
-            "UWBdiag slot=%u resp=%lu pre_to=%lu frame_to=%lu rx_err=%lu other=%lu late=%lu no_irq=%lu\r\n",
+            "UWBdiag slot=%u resp=%lu pre_to=%lu frame_to=%lu rx_err=%lu other=%lu late=%lu no_irq=%lu"
+            " phr=%lu fcs=%lu rs=%lu sfd=%lu filter=%lu lde=%lu\r\n",
             (unsigned)i, (unsigned long)slot->resp_ok, (unsigned long)slot->preamble_timeout,
             (unsigned long)slot->frame_timeout, (unsigned long)slot->rx_error,
             (unsigned long)slot->other_frame, (unsigned long)slot->rx_late,
-            (unsigned long)slot->no_irq);
+            (unsigned long)slot->no_irq, (unsigned long)slot->phr_error,
+            (unsigned long)slot->fcs_error, (unsigned long)slot->rs_error,
+            (unsigned long)slot->sfd_timeout, (unsigned long)slot->filter_reject,
+            (unsigned long)slot->lde_error);
         HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
     }
 
@@ -550,7 +569,7 @@ void tag_rx_ok_cb(const dwt_cb_data_t *cb_data)
  */
 void tag_rx_to_cb(const dwt_cb_data_t *cb_data)
 {
-    rx_timeout_status = cb_data->status;
+    rx_event_status = cb_data->status;
     rx_status = RX_TIMEOUT;
 }
 
@@ -565,8 +584,8 @@ void tag_rx_to_cb(const dwt_cb_data_t *cb_data)
  */
 void tag_rx_err_cb(const dwt_cb_data_t *cb_data)
 {
+    rx_event_status = cb_data->status;
     rx_status = RX_ERROR;
-    UNUSED(cb_data);
 }
 
 /*! ------------------------------------------------------------------------------------------------------------------

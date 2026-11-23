@@ -679,30 +679,22 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	return DBGRET_OK;
 }
 
-/* 设置统计模式 */
+/* 设置测距和定位结果的输出开关 */
 DbgResult_t Cmd_SetShowMode(uint8_t Argc, char *Argv[])
 {
-	uint8_t mode=0;
-	
-	/* 检查参数个数 */
-	if (Argc >= 1)
+	if (Argc == 0)
 	{
-		mode = atol(Argv[1]);
-		if (mode != 0)
-		{
-			g_DevConfig.ShowSolution = 1;
-			debug_printf("Show Solution ON!\r\n");
-			return DBGRET_OK;
-		}
-		else
-		{
-			g_DevConfig.ShowSolution = 0;
-			debug_printf("Show Solution OFF!\r\n");
-			return DBGRET_OK;
-		}
+		return DBGRET_ERR_ARG_ILLEGAL;
 	}
-	
-	return DBGRET_ERR_ARG_ILLEGAL;
+
+	uint8_t enabled = (uint8_t)atol(Argv[1]) != 0;
+	if (instance_mode == TAG)
+		ShowRanging = enabled;
+	else
+		g_DevConfig.ShowSolution = enabled;
+
+	debug_printf("Show Solution %s!\r\n", enabled ? "ON" : "OFF");
+	return DBGRET_OK;
 }
 
 /* 设置用户数据 */
