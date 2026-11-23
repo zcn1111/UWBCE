@@ -22,6 +22,7 @@ DbgResult_t Cmd_SetDevConfig(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetSolutionMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetShowMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[]);
+DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetUserdata(uint8_t Argc, char *Argv[]);
 
 
@@ -655,6 +656,26 @@ DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[])
 
 	g_DevConfig.StatisticsMode = (uint8_t)mode;
 	debug_printf("Set statistic mode OK!\r\n");
+	return DBGRET_OK;
+}
+
+DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
+{
+	if (instance_mode != TAG)
+	{
+		debug_printf("uwbdiag requires tag mode.\r\n");
+		return DBGRET_ERR_OTHER;
+	}
+
+	if (Argc > 1 || (Argc == 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
+	{
+		return DBGRET_ERR_ARG_ILLEGAL;
+	}
+	if (Argc == 1)
+	{
+		tag_diag_set_enabled(Argv[1][0] == '1');
+	}
+	debug_printf("UWB diag = %u\r\n", (unsigned)tag_diag_is_enabled());
 	return DBGRET_OK;
 }
 

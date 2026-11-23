@@ -309,6 +309,8 @@ extern uint8_t target_ancid;
 extern uint32_t volatile next_period_time;                          //标签下次测距周期开始时间，用于防冲突管理
 void anchor_app(void);
 void tag_app(void);
+uint8_t tag_diag_is_enabled(void);
+void tag_diag_set_enabled(uint8_t enabled);
 extern void set_instance(void);
 extern void DW1000_init(void);
 
