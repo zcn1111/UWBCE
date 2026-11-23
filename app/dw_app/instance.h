@@ -311,7 +311,8 @@ extern uint32_t volatile next_period_time;                          //标签下�
 void anchor_app(void);
 void tag_app(void);
 uint8_t tag_diag_is_enabled(void);
-void tag_diag_set_enabled(uint8_t enabled);
+uint8_t tag_diag_get_slot(void);
+void tag_diag_set_enabled(uint8_t enabled, uint8_t slot);
 extern void set_instance(void);
 extern void DW1000_init(void);
 

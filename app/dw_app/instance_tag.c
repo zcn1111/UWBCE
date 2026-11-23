@@ -11,7 +11,8 @@ static uint8_t tx_final_msg[FIANL_MSG_LEN] = {0x41, 0x88, 0, 0xCA, 0xDE, 0xFF, 0
 /* 接收数据buffer */
 static uint8_t rx_buffer[FRAME_LEN_MAX];
 uint8_t g_CalFlag = 0;
-static uint8_t resp_expect = MAX_AHCHOR_NUMBER;         //resp消息接收个数
+static uint8_t resp_slot;
+static uint8_t single_resp_slot;                       //本轮只接收此槽，MAX_AHCHOR_NUMBER 表示扫描全部
 static int tagSleepCorrection_ms = 0;                   //标签时序校准，用于slot分配防冲突管理
 uint32_t volatile next_period_time = 0;                //标签下次测距周期开始时间，用于防冲突管理
 uint8_t Correction_flag = 0;                            //该标签已经被时序校准的标志位
@@ -65,6 +66,7 @@ static struct
 } tag_diag;
 
 static uint8_t tag_diag_enabled;
+static uint8_t tag_diag_selected_slot = MAX_AHCHOR_NUMBER;
 static uint8_t tag_diag_collect;
 static uint32_t tag_diag_started;
 
@@ -73,12 +75,18 @@ uint8_t tag_diag_is_enabled(void)
     return tag_diag_enabled;
 }
 
-void tag_diag_set_enabled(uint8_t enabled)
+uint8_t tag_diag_get_slot(void)
+{
+    return tag_diag_selected_slot;
+}
+
+void tag_diag_set_enabled(uint8_t enabled, uint8_t slot)
 {
     memset(&tag_diag, 0, sizeof(tag_diag));
     tag_diag_started = portGetTickCnt();
     tag_diag_collect = 0;  // 从下一次 Poll 开始采样，避免计入半轮
     tag_diag_enabled = enabled;
+    tag_diag_selected_slot = (enabled && slot < MAX_AHCHOR_NUMBER) ? slot : MAX_AHCHOR_NUMBER;
 }
 
 static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
@@ -113,11 +121,13 @@ static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
 static void tag_diag_report(void)
 {
     char line[256];
+    unsigned rx_mask = (tag_diag_selected_slot < MAX_AHCHOR_NUMBER)
+        ? (1U << tag_diag_selected_slot) : ((1U << MAX_AHCHOR_NUMBER) - 1U);
     snprintf(line, sizeof(line),
-        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu\r\n",
+        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X\r\n",
         (unsigned long)tag_diag.polls, (unsigned long)tag_diag.poll_tx_ok,
         (unsigned long)tag_diag.final_tx_ok, (unsigned long)tag_diag.final_tx_fail,
-        (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort);
+        (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort, rx_mask);
     HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
 
     for (uint8_t i = 0; i < MAX_AHCHOR_NUMBER; i++)
@@ -246,14 +256,15 @@ void tag_app(void)
             if (tag_diag_collect)
                 tag_diag.poll_tx_ok++;
             poll_tx_ts = get_tx_timestamp_u64();                //取得poll_tx时间戳
-            resp_expect = MAX_AHCHOR_NUMBER;                    //发送poll消息后，等待最大基站数量个resp消息回复
+            single_resp_slot = tag_diag_selected_slot;          //整轮沿用 Poll 发出后的槽选择
+            resp_slot = (single_resp_slot < MAX_AHCHOR_NUMBER) ? single_resp_slot : 0;
             resp_valid = 0;                                     //resp有效校验初始化
             memset(rx_buffer, 0, sizeof(rx_buffer));
             //发送POLL之后，延时开启接收等待resp
             dwt_setrxtimeout(inst_resp_rx_timeout);     //设置接收超时时间
             dwt_setpreambledetecttimeout(PRE_TIMEOUT);  //设置前导码超时
 
-            if (tag_start_resp_rx(0) == DWT_ERROR)
+            if (tag_start_resp_rx(resp_slot) == DWT_ERROR)
             {
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));  //如该标签未被时序校准，初次上电，增加随机时间，避免一直冲突      
                 range_status = RANGE_ERROR;
@@ -290,7 +301,7 @@ void tag_app(void)
                 }
 
                 if (tag_diag_collect)
-                    tag_diag.slots[MAX_AHCHOR_NUMBER - resp_expect].no_irq++;
+                    tag_diag.slots[resp_slot].no_irq++;
                 dwt_forcetrxoff();
                 dwt_rxreset();
                 rx_status = RX_WAIT;
@@ -305,16 +316,16 @@ void tag_app(void)
         case STA_RECV_RESP:
         {
             static uint8_t no_resp_count = 0;   //未接收到任何基站回复的周期计数
-            uint8_t slot = MAX_AHCHOR_NUMBER - resp_expect;
             uint8_t has_function_code = rx_status == RX_OK &&
                 rx_frame_len >= FUNC_CODE_IDX + 1 + FCS_LEN && rx_frame_len <= sizeof(rx_buffer);
             uint8_t other_function = has_function_code && rx_buffer[FUNC_CODE_IDX] != FUNC_CODE_RESP;
             uint8_t valid_resp = has_function_code && !other_function &&
                 rx_frame_len == RESP_MSG_LEN + FCS_LEN && rx_buffer[RANGE_NB_IDX] == range_nb &&
-                rx_buffer[SENDER_SHORT_ADD_IDX] < MAX_AHCHOR_NUMBER;
+                rx_buffer[SENDER_SHORT_ADD_IDX] < MAX_AHCHOR_NUMBER &&
+                (single_resp_slot == MAX_AHCHOR_NUMBER || rx_buffer[SENDER_SHORT_ADD_IDX] == resp_slot);
 
             if (tag_diag_collect)
-                tag_diag_record_rx(slot, valid_resp);
+                tag_diag_record_rx(resp_slot, valid_resp);
 
             if (other_function)
             {
@@ -361,8 +372,7 @@ void tag_app(void)
             }
 
             rx_status = RX_WAIT;
-            resp_expect--;
-            if (resp_expect == 0)
+            if (single_resp_slot < MAX_AHCHOR_NUMBER || resp_slot == MAX_AHCHOR_NUMBER - 1)
             {
                 if (resp_valid == 0)
                 {
@@ -387,7 +397,8 @@ void tag_app(void)
             }
 
             /* 继续等待下一槽，空窗口照常推进。 */
-            if (tag_start_resp_rx(slot + 1) == DWT_ERROR)
+            resp_slot++;
+            if (tag_start_resp_rx(resp_slot) == DWT_ERROR)
             {
                 next_period_time = range_time + inst_one_slot_time * inst_slot_number + ((Correction_flag == 1)?0:(diff_time));
                 range_status = RANGE_ERROR;

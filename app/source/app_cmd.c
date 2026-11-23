@@ -667,15 +667,33 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		return DBGRET_ERR_OTHER;
 	}
 
-	if (Argc > 1 || (Argc == 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
+	if (Argc > 2 || (Argc >= 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
 	{
 		return DBGRET_ERR_ARG_ILLEGAL;
 	}
-	if (Argc == 1)
+
+	uint8_t slot = MAX_AHCHOR_NUMBER;
+	if (Argc == 2)
 	{
-		tag_diag_set_enabled(Argv[1][0] == '1');
+		char *end;
+		long value = strtol(Argv[2], &end, 10);
+		if (Argv[1][0] != '1' || end == Argv[2] || *end != '\0' || value < 0 || value >= MAX_AHCHOR_NUMBER)
+		{
+			return DBGRET_ERR_ARG_ILLEGAL;
+		}
+		slot = (uint8_t)value;
 	}
+	if (Argc >= 1)
+	{
+		tag_diag_set_enabled(Argv[1][0] == '1', slot);
+	}
+
 	debug_printf("UWB diag = %u\r\n", (unsigned)tag_diag_is_enabled());
+	slot = tag_diag_get_slot();
+	if (slot < MAX_AHCHOR_NUMBER)
+	{
+		debug_printf("UWB diag slot = %u\r\n", (unsigned)slot);
+	}
 	return DBGRET_OK;
 }
 
