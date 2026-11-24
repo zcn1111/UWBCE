@@ -137,13 +137,16 @@ uint8_t tag_diag_get_rx_retry(void)
 void tag_diag_set_rx_retry(uint8_t enabled)
 {
     tag_diag_selected_retry = tag_diag_enabled && tag_diag_selected_advance != TAG_DIAG_RX_WINDOW_OFF && enabled;
+    if (dwt_setsfdfastrecovery(tag_diag_selected_retry) == DWT_ERROR)
+        tag_diag_selected_retry = 0;
 }
 
 void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot)
 {
+    tag_diag_collect = 0;  // 从下一次 Poll 开始采样，避免计入半轮
+    dwt_setsfdfastrecovery(0);
     memset(&tag_diag, 0, sizeof(tag_diag));
     tag_diag_started = portGetTickCnt();
-    tag_diag_collect = 0;  // 从下一次 Poll 开始采样，避免计入半轮
     DW1000_IrqTimingEnable(0);
     tag_diag_enabled = enabled;
     uint8_t single_slot = enabled && id < MAX_AHCHOR_NUMBER && slot < MAX_AHCHOR_NUMBER;
@@ -194,11 +197,11 @@ static void tag_diag_report(void)
     int resp_id = (tag_diag_selected_id < MAX_AHCHOR_NUMBER) ? (int)tag_diag_selected_id : -1;
     int rx_advance = tag_diag_selected_advance == TAG_DIAG_RX_WINDOW_OFF ? -1 : (int)tag_diag_selected_advance;
     snprintf(line, sizeof(line),
-        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d rx_retry=%u\r\n",
+        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d rx_retry=%u rx_short=%u\r\n",
         (unsigned long)tag_diag.polls, (unsigned long)tag_diag.poll_tx_ok,
         (unsigned long)tag_diag.final_tx_ok, (unsigned long)tag_diag.final_tx_fail,
         (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort, rx_mask, resp_id, rx_advance,
-        (unsigned)tag_diag_selected_retry);
+        (unsigned)tag_diag_selected_retry, (unsigned)dwt_getsfdfastrecovery());
     HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
 
     for (uint8_t i = 0; i < MAX_AHCHOR_NUMBER; i++)
@@ -298,14 +301,14 @@ static void tag_diag_record_resp_time(uint8_t slot, uint64_t timestamp)
     stats->resp_time_count++;
 }
 
-/* 驱动已在 RX 错误中断中关闭并复位接收机。这里只恢复足够早的纯 SFD 超时，
+/* SFD 诊断短路径只清状态，其余错误仍完整复位。这里只恢复足够早的纯 SFD 超时，
  * 最多两次；重新预约 RX 起点并按原绝对截止时刻计算超时，防止占用下一槽。 */
 static uint8_t tag_try_sfd_retry(uint8_t slot)
 {
     uint32_t status = rx_event_status;
     if (!tag_diag_collect || resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF || rx_status != RX_ERROR)
         return 0;
-    uint8_t pure_sfd = (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO)) == SYS_STATUS_RXSFDTO;
+    uint8_t pure_sfd = (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO | SYS_STATUS_RXFCG | SYS_STATUS_RXOVRR)) == SYS_STATUS_RXSFDTO;
     if (!pure_sfd && (status & SYS_STATUS_RXPHE) == 0)
         return 0;
 
@@ -352,20 +355,30 @@ static uint8_t tag_try_sfd_retry(uint8_t slot)
 
     if (!resp_rx_retry || resp_rx_retry_count >= TAG_DIAG_SFD_RETRY_MAX)
         return 0;
-    uint32_t rearm_delay = deca_spi_is_fast() ? 32U : TAG_DIAG_SFD_REARM_UUS;
+    uint8_t fast_setup = deca_spi_is_fast() && inst_dataRate == DWT_BR_6M8 && dwt_getsfdfastrecovery();
+    uint32_t rearm_delay = fast_setup ? 48U : TAG_DIAG_SFD_REARM_UUS;
     uint32_t retry_hi = (now_hi + rearm_delay * TAG_DIAG_DX_PER_UUS) & ~1UL;
     int32_t remaining = (int32_t)(resp_window_end_hi - retry_hi);
-    /* 恢复后的 RX 起点不晚于原命令使用的正常起点，保留前导码捕获余量。 */
-    if ((int32_t)(resp_expected_hi - retry_hi) < (int32_t)(resp_rx_back_uus * TAG_DIAG_DX_PER_UUS)
+    /* 64+8 个 SHR 符号约为 72 UUS；短路径保留至少 80 UUS 的 PHR 前余量。
+     * 绝对窗口终点沿用初次 RX 设置，不延长到下一槽。 */
+    uint32_t min_lead = fast_setup ? 80U : resp_rx_back_uus;
+    if ((int32_t)(resp_expected_hi - retry_hi) < (int32_t)(min_lead * TAG_DIAG_DX_PER_UUS)
         || remaining < (int32_t)TAG_DIAG_DX_PER_UUS)
         return 0;
 
-    dwt_setrxtimeout((uint16_t)((uint32_t)remaining / TAG_DIAG_DX_PER_UUS));
+    uint16_t timeout = (uint16_t)((uint32_t)remaining / TAG_DIAG_DX_PER_UUS);
+    if (fast_setup)
+        /* 单缓冲、无有效帧的 SFD 错误未改变指针，RXWTOE 也已经启用。
+         * 只更新 FWTO，省去 SYS_CFG 读改写及重复的缓冲区指针同步。 */
+        dwt_write16bitoffsetreg(RX_FWTO_ID, RX_FWTO_OFFSET, timeout);
+    else
+        dwt_setrxtimeout(timeout);
     dwt_setdelayedtrxtime(retry_hi);
     rx_status = RX_WAIT;
     rx_frame_len = 0;
     rx_event_status = 0;
-    if (dwt_rxenable(DWT_START_RX_DELAYED | DWT_IDLE_ON_DLY_ERR) == DWT_SUCCESS)
+    int mode = DWT_START_RX_DELAYED | DWT_IDLE_ON_DLY_ERR | (fast_setup ? DWT_NO_SYNC_PTRS : 0);
+    if (dwt_rxenable(mode) == DWT_SUCCESS)
     {
         resp_rx_retry_count++;
         stats->sfd_rearm++;

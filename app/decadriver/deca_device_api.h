@@ -1016,6 +1016,12 @@ int dwt_spicswakeup(uint8 *buff, uint16 length);
  */
 void dwt_setcallbacks(dwt_cb_t cbTxDone, dwt_cb_t cbRxOk, dwt_cb_t cbRxTo, dwt_cb_t cbRxErr);
 
+/* Optional diagnostic path, disabled after initialise/callback registration. Pure SFD timeout in
+ * single-buffer mode needs status clearing but no RX reset (UM 4.1.6).
+ * Other errors keep the full recovery. Returns DWT_ERROR for double buffering. */
+int dwt_setsfdfastrecovery(int enable);
+int dwt_getsfdfastrecovery(void);
+
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn dwt_checkirq()
  *

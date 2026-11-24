@@ -77,6 +77,7 @@ typedef struct
     uint32      sysCFGreg;         // Local copy of system config register
     uint16      sleep_mode;         // Used for automatic reloading of LDO tune and microcode at wake-up
     uint8       wait4resp;         // wait4response was set with last TX start command
+    uint8       sfd_fast_recovery; // Optional single-buffer SFD-only short recovery
     dwt_cb_data_t cbData;           // Callback data structure
     dwt_cb_t    cbTxDone;           // Callback for TX confirmation event
     dwt_cb_t    cbRxOk;             // Callback for RX good frame event
@@ -148,6 +149,7 @@ int dwt_initialise(uint16 config)
     uint32 ldo_tune = 0;
 
     pdw1000local->dblbuffon = 0; // Double buffer mode off by default
+    pdw1000local->sfd_fast_recovery = 0;
     pdw1000local->wait4resp = 0;
     pdw1000local->sleep_mode = 0;
 
@@ -2159,10 +2161,22 @@ void dwt_setrxaftertxdelay(uint32 rxDelayTime)
  */
 void dwt_setcallbacks(dwt_cb_t cbTxDone, dwt_cb_t cbRxOk, dwt_cb_t cbRxTo, dwt_cb_t cbRxErr)
 {
+    pdw1000local->sfd_fast_recovery = 0;
     pdw1000local->cbTxDone = cbTxDone;
     pdw1000local->cbRxOk = cbRxOk;
     pdw1000local->cbRxTo = cbRxTo;
     pdw1000local->cbRxErr = cbRxErr;
+}
+
+int dwt_setsfdfastrecovery(int enable)
+{
+    pdw1000local->sfd_fast_recovery = (enable != 0) && !pdw1000local->dblbuffon;
+    return enable && pdw1000local->dblbuffon ? DWT_ERROR : DWT_SUCCESS;
+}
+
+int dwt_getsfdfastrecovery(void)
+{
+    return pdw1000local->sfd_fast_recovery && !pdw1000local->dblbuffon;
 }
 
 /*! ------------------------------------------------------------------------------------------------------------------
@@ -2309,15 +2323,19 @@ void dwt_isr(void)
     // Handle RX errors events
     if(status & SYS_STATUS_ALL_RX_ERR)
     {
-        dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_ERR); // Clear RX error event bits
-
+        uint8 short_sfd = pdw1000local->sfd_fast_recovery && !pdw1000local->dblbuffon
+            && (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO | SYS_STATUS_RXFCG | SYS_STATUS_RXOVRR)) == SYS_STATUS_RXSFDTO;
+        dwt_write32bitreg(SYS_STATUS_ID, short_sfd
+            ? (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_GOOD) : SYS_STATUS_ALL_RX_ERR);
         pdw1000local->wait4resp = 0;
 
-        // Because of an issue with receiver restart after error conditions, an RX reset must be applied after any error or timeout event to ensure
-        // the next good frame's timestamp is computed correctly.
-        // See section "RX Message timestamp" in DW1000 User Manual.
-        dwt_forcetrxoff();
-        dwt_rxreset();
+        // UM 4.1.6 exempts SFD timeout from RX reset. Keep the original full
+        // recovery unless the diagnostic SFD-only path is explicitly enabled.
+        if (!short_sfd)
+        {
+            dwt_forcetrxoff();
+            dwt_rxreset();
+        }
 
         // Call the corresponding callback if present
         if(pdw1000local->cbRxErr != NULL)
