@@ -661,12 +661,10 @@ DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[])
 
 DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 {
-	if (instance_mode != TAG)
+	if (instance_mode != TAG && instance_mode != ANCHOR)
 	{
-		debug_printf("uwbdiag requires tag mode.\r\n");
 		return DBGRET_ERR_OTHER;
 	}
-
 	if (Argc > 2 || (Argc >= 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
 	{
 		return DBGRET_ERR_ARG_ILLEGAL;
@@ -683,6 +681,20 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		}
 		slot = (uint8_t)value;
 	}
+	if (instance_mode == ANCHOR)
+	{
+		if (slot < MAX_AHCHOR_NUMBER && slot != anc_id)
+		{
+			return DBGRET_ERR_ARG_OUTRANGE;
+		}
+		if (Argc >= 1)
+		{
+			anc_diag_set_mode(Argv[1][0] == '1', slot < MAX_AHCHOR_NUMBER);
+		}
+		anc_diag_report();
+		return DBGRET_OK;
+	}
+
 	if (Argc >= 1)
 	{
 		tag_diag_set_enabled(Argv[1][0] == '1', slot);
