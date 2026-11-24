@@ -48,6 +48,8 @@ static uint32_t led_time = 0;
 #define TAG_DIAG_DX_PER_UUS (UUS_TO_DWT_TIME >> 8)
 #define TAG_DIAG_SFD_RETRY_MAX 2U
 #define TAG_DIAG_SFD_REARM_UUS 64U
+#define TAG_DIAG_SFD_FAST_REARM_UUS 32U
+#define TAG_DIAG_SFD_FAST_LEAD_UUS 80U
 
 typedef struct
 {
@@ -196,12 +198,15 @@ static void tag_diag_report(void)
         ? (1U << tag_diag_selected_slot) : ((1U << MAX_AHCHOR_NUMBER) - 1U);
     int resp_id = (tag_diag_selected_id < MAX_AHCHOR_NUMBER) ? (int)tag_diag_selected_id : -1;
     int rx_advance = tag_diag_selected_advance == TAG_DIAG_RX_WINDOW_OFF ? -1 : (int)tag_diag_selected_advance;
+    unsigned retry_setup = tag_diag_selected_retry
+        ? (deca_spi_is_fast() && inst_dataRate == DWT_BR_6M8 && dwt_getsfdfastrecovery()
+            ? TAG_DIAG_SFD_FAST_REARM_UUS : TAG_DIAG_SFD_REARM_UUS) : 0U;
     snprintf(line, sizeof(line),
-        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d rx_retry=%u rx_short=%u\r\n",
+        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d rx_retry=%u rx_short=%u retry_setup_uus=%u\r\n",
         (unsigned long)tag_diag.polls, (unsigned long)tag_diag.poll_tx_ok,
         (unsigned long)tag_diag.final_tx_ok, (unsigned long)tag_diag.final_tx_fail,
         (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort, rx_mask, resp_id, rx_advance,
-        (unsigned)tag_diag_selected_retry, (unsigned)dwt_getsfdfastrecovery());
+        (unsigned)tag_diag_selected_retry, (unsigned)dwt_getsfdfastrecovery(), retry_setup);
     HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
 
     for (uint8_t i = 0; i < MAX_AHCHOR_NUMBER; i++)
@@ -356,12 +361,14 @@ static uint8_t tag_try_sfd_retry(uint8_t slot)
     if (!resp_rx_retry || resp_rx_retry_count >= TAG_DIAG_SFD_RETRY_MAX)
         return 0;
     uint8_t fast_setup = deca_spi_is_fast() && inst_dataRate == DWT_BR_6M8 && dwt_getsfdfastrecovery();
-    uint32_t rearm_delay = fast_setup ? 48U : TAG_DIAG_SFD_REARM_UUS;
+    /* 短路径实测距 Resp 约剩 118~125 UUS；48+80 的门限会跳过这些事件。
+     * 预约改为 32 UUS，若配置来不及仍由延迟 RX 的 late 检查拒绝。 */
+    uint32_t rearm_delay = fast_setup ? TAG_DIAG_SFD_FAST_REARM_UUS : TAG_DIAG_SFD_REARM_UUS;
     uint32_t retry_hi = (now_hi + rearm_delay * TAG_DIAG_DX_PER_UUS) & ~1UL;
     int32_t remaining = (int32_t)(resp_window_end_hi - retry_hi);
     /* 64+8 个 SHR 符号约为 72 UUS；短路径保留至少 80 UUS 的 PHR 前余量。
      * 绝对窗口终点沿用初次 RX 设置，不延长到下一槽。 */
-    uint32_t min_lead = fast_setup ? 80U : resp_rx_back_uus;
+    uint32_t min_lead = fast_setup ? TAG_DIAG_SFD_FAST_LEAD_UUS : resp_rx_back_uus;
     if ((int32_t)(resp_expected_hi - retry_hi) < (int32_t)(min_lead * TAG_DIAG_DX_PER_UUS)
         || remaining < (int32_t)TAG_DIAG_DX_PER_UUS)
         return 0;
