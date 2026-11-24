@@ -751,6 +751,11 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	{
 		debug_printf("UWB diag RX advance = %u uus, preamble timeout OFF\r\n", (unsigned)rx_advance);
 		debug_printf("UWB diag SFD retry = %u\r\n", (unsigned)tag_diag_get_rx_retry());
+		uint32_t spi_cr1 = READ_REG(hspi2.Instance->CR1);
+		uint32_t spi_div = 2U << ((spi_cr1 & SPI_CR1_BR) >> 3U);
+		uint32_t pclk_hz = HAL_RCC_GetPCLK1Freq();
+		debug_printf("UWBdiagLink pclk_hz=%lu spi_div=%lu spi_hz=%lu\r\n",
+			(unsigned long)pclk_hz, (unsigned long)spi_div, (unsigned long)(pclk_hz / spi_div));
 	}
 	return DBGRET_OK;
 }

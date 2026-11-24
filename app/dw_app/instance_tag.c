@@ -34,6 +34,7 @@ static volatile uint8_t rx_status = RX_WAIT;
 static volatile uint8_t tx_status = TX_WAIT;
 static volatile uint16_t rx_frame_len;
 static volatile uint32_t rx_event_status;
+static volatile uint32_t rx_event_irq_hi;
 
 static uint8_t resp_valid = 0x00;               //基站数据有效标志
 uint32 diff_time;                               //标签增加发起测距随机时间，避免冲突
@@ -69,6 +70,16 @@ typedef struct
     uint32_t sfd_rearm_late;
     int32_t sfd_offset_min;
     int32_t sfd_offset_max;
+    uint32_t sfd_irq_before;
+    uint32_t sfd_irq_after;
+    int32_t sfd_irq_offset_min;
+    int32_t sfd_irq_offset_max;
+    uint32_t sfd_irq_lag_min;
+    uint32_t sfd_irq_lag_max;
+    int32_t phr_irq_offset_min;
+    int32_t phr_irq_offset_max;
+    uint32_t phr_irq_lag_min;
+    uint32_t phr_irq_lag_max;
     uint32_t resp_time_count;
     int32_t resp_offset_min;
     int32_t resp_offset_max;
@@ -114,6 +125,7 @@ void tag_diag_set_rx_window(uint16_t advance_uus)
     /* 单槽和全槽诊断均可提前 RX，参数从下一轮 Poll 生效。 */
     tag_diag_selected_advance = tag_diag_enabled && advance_uus <= TAG_DIAG_RX_ADVANCE_MAX_UUS
         ? advance_uus : TAG_DIAG_RX_WINDOW_OFF;
+    DW1000_IrqTimingEnable(tag_diag_selected_advance != TAG_DIAG_RX_WINDOW_OFF);
 }
 
 uint8_t tag_diag_get_rx_retry(void)
@@ -131,6 +143,7 @@ void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot)
     memset(&tag_diag, 0, sizeof(tag_diag));
     tag_diag_started = portGetTickCnt();
     tag_diag_collect = 0;  // 从下一次 Poll 开始采样，避免计入半轮
+    DW1000_IrqTimingEnable(0);
     tag_diag_enabled = enabled;
     uint8_t single_slot = enabled && id < MAX_AHCHOR_NUMBER && slot < MAX_AHCHOR_NUMBER;
     tag_diag_selected_id = single_slot ? id : MAX_AHCHOR_NUMBER;
@@ -207,7 +220,8 @@ static void tag_diag_report(void)
                 ? (int32_t)(slot->resp_offset_sum / slot->resp_time_count / TAG_DIAG_DX_PER_UUS) : 0;
             snprintf(line, sizeof(line),
                 "UWBdiagRX slot=%u n=%lu sfd_pre=%lu sfd_post=%lu rearm=%lu recovered=%lu rearm_late=%lu"
-                " sfd_off_uus=%ld/%ld resp_off_uus=%ld/%ld/%ld\r\n",
+                " sfd_off_uus=%ld/%ld resp_off_uus=%ld/%ld/%ld"
+                " sfd_irq_uus=%ld/%ld irq_pre=%lu irq_post=%lu irq_to_main_uus=%lu/%lu\r\n",
                 (unsigned)i, (unsigned long)slot->resp_time_count,
                 (unsigned long)slot->sfd_before_resp, (unsigned long)slot->sfd_after_resp,
                 (unsigned long)slot->sfd_rearm, (unsigned long)slot->sfd_recovered,
@@ -215,8 +229,24 @@ static void tag_diag_report(void)
                 (long)(slot->sfd_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS),
                 (long)(slot->sfd_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS),
                 (long)(slot->resp_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS), (long)resp_average,
-                (long)(slot->resp_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS));
+                (long)(slot->resp_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS),
+                (long)(slot->sfd_irq_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS),
+                (long)(slot->sfd_irq_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS),
+                (unsigned long)slot->sfd_irq_before, (unsigned long)slot->sfd_irq_after,
+                (unsigned long)(slot->sfd_irq_lag_min / TAG_DIAG_DX_PER_UUS),
+                (unsigned long)(slot->sfd_irq_lag_max / TAG_DIAG_DX_PER_UUS));
             HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
+            if (slot->phr_error != 0)
+            {
+                snprintf(line, sizeof(line),
+                    "UWBdiagPHR slot=%u n=%lu irq_off_uus=%ld/%ld irq_to_main_uus=%lu/%lu\r\n",
+                    (unsigned)i, (unsigned long)slot->phr_error,
+                    (long)(slot->phr_irq_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS),
+                    (long)(slot->phr_irq_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS),
+                    (unsigned long)(slot->phr_irq_lag_min / TAG_DIAG_DX_PER_UUS),
+                    (unsigned long)(slot->phr_irq_lag_max / TAG_DIAG_DX_PER_UUS));
+                HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
+            }
         }
     }
 
@@ -272,14 +302,44 @@ static void tag_diag_record_resp_time(uint8_t slot, uint64_t timestamp)
 static uint8_t tag_try_sfd_retry(uint8_t slot)
 {
     uint32_t status = rx_event_status;
-    if (!tag_diag_collect || resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF || rx_status != RX_ERROR
-        || (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO)) != SYS_STATUS_RXSFDTO)
+    if (!tag_diag_collect || resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF || rx_status != RX_ERROR)
+        return 0;
+    uint8_t pure_sfd = (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO)) == SYS_STATUS_RXSFDTO;
+    if (!pure_sfd && (status & SYS_STATUS_RXPHE) == 0)
         return 0;
 
     tag_diag_slot_t *stats = &tag_diag.slots[slot];
     uint32_t now_hi = dwt_readsystimestamphi32();
     /* 这是主循环处理错误时的时刻，包含中断处理延迟，不是硬件错误时间戳。 */
     int32_t offset = (int32_t)(now_hi - resp_expected_hi);
+    int32_t irq_offset = (int32_t)(rx_event_irq_hi - resp_expected_hi);
+    uint32_t irq_lag = now_hi - rx_event_irq_hi;
+    if (status & SYS_STATUS_RXPHE)
+    {
+        if (stats->phr_error == 0 || irq_offset < stats->phr_irq_offset_min)
+            stats->phr_irq_offset_min = irq_offset;
+        if (stats->phr_error == 0 || irq_offset > stats->phr_irq_offset_max)
+            stats->phr_irq_offset_max = irq_offset;
+        if (stats->phr_error == 0 || irq_lag < stats->phr_irq_lag_min)
+            stats->phr_irq_lag_min = irq_lag;
+        if (stats->phr_error == 0 || irq_lag > stats->phr_irq_lag_max)
+            stats->phr_irq_lag_max = irq_lag;
+    }
+    if (!pure_sfd)
+        return 0;
+    uint8_t first_sfd = stats->sfd_before_resp + stats->sfd_after_resp == 0;
+    if (first_sfd || irq_offset < stats->sfd_irq_offset_min)
+        stats->sfd_irq_offset_min = irq_offset;
+    if (first_sfd || irq_offset > stats->sfd_irq_offset_max)
+        stats->sfd_irq_offset_max = irq_offset;
+    if (first_sfd || irq_lag < stats->sfd_irq_lag_min)
+        stats->sfd_irq_lag_min = irq_lag;
+    if (first_sfd || irq_lag > stats->sfd_irq_lag_max)
+        stats->sfd_irq_lag_max = irq_lag;
+    if (irq_offset < 0)
+        stats->sfd_irq_before++;
+    else
+        stats->sfd_irq_after++;
     if (stats->sfd_before_resp + stats->sfd_after_resp == 0 || offset < stats->sfd_offset_min)
         stats->sfd_offset_min = offset;
     if (stats->sfd_before_resp + stats->sfd_after_resp == 0 || offset > stats->sfd_offset_max)
@@ -755,6 +815,7 @@ void tag_rx_to_cb(const dwt_cb_data_t *cb_data)
  */
 void tag_rx_err_cb(const dwt_cb_data_t *cb_data)
 {
+    rx_event_irq_hi = DW1000_IrqTimeHi();
     rx_event_status = cb_data->status;
     rx_status = RX_ERROR;
 }
