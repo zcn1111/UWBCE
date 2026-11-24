@@ -671,8 +671,14 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		return DBGRET_ERR_ARG_ILLEGAL;
 	}
 
+	/* $uwbdiag 1 all <advance_uus>：四槽扫描，基站保持正常应答时序。 */
+	uint8_t all_slots = Argc >= 2 && strcmp(Argv[2], "all") == 0;
+	if (all_slots && (instance_mode != TAG || Argc != 3 || Argv[1][0] != '1'))
+	{
+		return DBGRET_ERR_ARG_ILLEGAL;
+	}
 	uint8_t params[2] = {MAX_AHCHOR_NUMBER, MAX_AHCHOR_NUMBER};
-	for (uint8_t i = 2; i <= Argc && i <= 3; i++)
+	for (uint8_t i = 2; !all_slots && i <= Argc && i <= 3; i++)
 	{
 		char *end;
 		long value = strtol(Argv[i], &end, 10);
@@ -685,11 +691,12 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	uint8_t id = params[0];
 	uint8_t slot = Argc >= 3 ? params[1] : id;
 	uint16_t rx_advance = TAG_DIAG_RX_WINDOW_OFF;
-	if (Argc == 4)
+	char *advance_arg = all_slots ? Argv[3] : (Argc == 4 ? Argv[4] : NULL);
+	if (advance_arg != NULL)
 	{
 		char *end;
-		long value = strtol(Argv[4], &end, 10);
-		if (end == Argv[4] || *end != '\0' || value < 0 || value > TAG_DIAG_RX_ADVANCE_MAX_UUS)
+		long value = strtol(advance_arg, &end, 10);
+		if (end == advance_arg || *end != '\0' || value < 0 || value > TAG_DIAG_RX_ADVANCE_MAX_UUS)
 		{
 			return DBGRET_ERR_ARG_ILLEGAL;
 		}

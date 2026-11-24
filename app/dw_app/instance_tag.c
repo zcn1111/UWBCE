@@ -13,7 +13,7 @@ static uint8_t rx_buffer[FRAME_LEN_MAX];
 uint8_t g_CalFlag = 0;
 static uint8_t resp_slot;
 static uint8_t single_resp_id;                         //本轮只接收此基站，MAX_AHCHOR_NUMBER 表示扫描全部
-static uint16_t single_rx_advance = TAG_DIAG_RX_WINDOW_OFF;
+static uint16_t resp_rx_advance = TAG_DIAG_RX_WINDOW_OFF;
 static int tagSleepCorrection_ms = 0;                   //标签时序校准，用于slot分配防冲突管理
 uint32_t volatile next_period_time = 0;                //标签下次测距周期开始时间，用于防冲突管理
 uint8_t Correction_flag = 0;                            //该标签已经被时序校准的标志位
@@ -90,9 +90,9 @@ uint16_t tag_diag_get_rx_advance(void)
 
 void tag_diag_set_rx_window(uint16_t advance_uus)
 {
-    /* 只允许在单基站诊断中提前 RX，参数从下一轮 Poll 生效。 */
-    tag_diag_selected_advance = tag_diag_enabled && tag_diag_selected_id < MAX_AHCHOR_NUMBER
-        && advance_uus <= TAG_DIAG_RX_ADVANCE_MAX_UUS ? advance_uus : TAG_DIAG_RX_WINDOW_OFF;
+    /* 单槽和全槽诊断均可提前 RX，参数从下一轮 Poll 生效。 */
+    tag_diag_selected_advance = tag_diag_enabled && advance_uus <= TAG_DIAG_RX_ADVANCE_MAX_UUS
+        ? advance_uus : TAG_DIAG_RX_WINDOW_OFF;
 }
 
 void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot)
@@ -178,7 +178,7 @@ static int tag_start_resp_rx(uint8_t slot)
     else if (inst_dataRate == DWT_BR_850K)
         first_resp_delay = FIRST_RESP_SEND_850K;
 
-    uint32_t advance = single_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? 0U : single_rx_advance;
+    uint32_t advance = resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? 0U : resp_rx_advance;
     uint64_t delay = (first_resp_delay + slot * inst_data_interval - advance) * (uint64_t)UUS_TO_DWT_TIME;
     dwt_setdelayedtrxtime((uint32_t)((poll_tx_ts + delay) >> 8));
     rx_status = RX_WAIT;
@@ -279,16 +279,15 @@ void tag_app(void)
             poll_tx_ts = get_tx_timestamp_u64();                //取得poll_tx时间戳
             single_resp_id = tag_diag_selected_id;             //整轮沿用 Poll 发出后的基站和槽选择
             resp_slot = (single_resp_id < MAX_AHCHOR_NUMBER) ? tag_diag_selected_slot : 0;
-            single_rx_advance = single_resp_id < MAX_AHCHOR_NUMBER
-                ? tag_diag_selected_advance : TAG_DIAG_RX_WINDOW_OFF;
+            resp_rx_advance = tag_diag_selected_advance;        //全槽扫描也沿用本轮提前量
             resp_valid = 0;                                     //resp有效校验初始化
             memset(rx_buffer, 0, sizeof(rx_buffer));
             //发送POLL之后，延时开启接收等待resp
-            uint16_t advance = single_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? 0U : single_rx_advance;
+            uint16_t advance = resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? 0U : resp_rx_advance;
             dwt_setrxtimeout(inst_resp_rx_timeout + advance);
             /* 窗口对照的 0 和提前量均关闭前导码超时，只改变 RX 起点。
              * 帧超时同步延长，使结束时刻保持不变。旧命令保持原超时。 */
-            dwt_setpreambledetecttimeout(single_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? PRE_TIMEOUT : 0);
+            dwt_setpreambledetecttimeout(resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? PRE_TIMEOUT : 0);
 
             if (tag_start_resp_rx(resp_slot) == DWT_ERROR)
             {
