@@ -665,13 +665,14 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	{
 		return DBGRET_ERR_OTHER;
 	}
-	if (Argc > 3 || (Argc >= 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
+	if (Argc > 4 || (Argc == 4 && instance_mode != TAG)
+		|| (Argc >= 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
 	{
 		return DBGRET_ERR_ARG_ILLEGAL;
 	}
 
 	uint8_t params[2] = {MAX_AHCHOR_NUMBER, MAX_AHCHOR_NUMBER};
-	for (uint8_t i = 2; i <= Argc; i++)
+	for (uint8_t i = 2; i <= Argc && i <= 3; i++)
 	{
 		char *end;
 		long value = strtol(Argv[i], &end, 10);
@@ -682,7 +683,18 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		params[i - 2] = (uint8_t)value;
 	}
 	uint8_t id = params[0];
-	uint8_t slot = Argc == 3 ? params[1] : id;
+	uint8_t slot = Argc >= 3 ? params[1] : id;
+	uint16_t rx_advance = TAG_DIAG_RX_WINDOW_OFF;
+	if (Argc == 4)
+	{
+		char *end;
+		long value = strtol(Argv[4], &end, 10);
+		if (end == Argv[4] || *end != '\0' || value < 0 || value > TAG_DIAG_RX_ADVANCE_MAX_UUS)
+		{
+			return DBGRET_ERR_ARG_ILLEGAL;
+		}
+		rx_advance = (uint16_t)value;
+	}
 	if (instance_mode == ANCHOR)
 	{
 		if (Argc == 3)
@@ -704,6 +716,10 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	if (Argc >= 1)
 	{
 		tag_diag_set_enabled(Argv[1][0] == '1', id, slot);
+		if (rx_advance != TAG_DIAG_RX_WINDOW_OFF)
+		{
+			tag_diag_set_rx_window(rx_advance);
+		}
 	}
 
 	debug_printf("UWB diag = %u\r\n", (unsigned)tag_diag_is_enabled());
@@ -711,6 +727,11 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	if (slot < MAX_AHCHOR_NUMBER)
 	{
 		debug_printf("UWB diag slot = %u\r\n", (unsigned)slot);
+	}
+	rx_advance = tag_diag_get_rx_advance();
+	if (rx_advance != TAG_DIAG_RX_WINDOW_OFF)
+	{
+		debug_printf("UWB diag RX advance = %u uus, preamble timeout OFF\r\n", (unsigned)rx_advance);
 	}
 	return DBGRET_OK;
 }

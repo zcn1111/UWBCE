@@ -315,6 +315,10 @@ void tag_app(void);
 uint8_t tag_diag_is_enabled(void);
 uint8_t tag_diag_get_slot(void);
 void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot);
+#define TAG_DIAG_RX_ADVANCE_MAX_UUS 800U
+#define TAG_DIAG_RX_WINDOW_OFF 0xFFFFU
+uint16_t tag_diag_get_rx_advance(void);
+void tag_diag_set_rx_window(uint16_t advance_uus);
 extern void set_instance(void);
 extern void DW1000_init(void);
 
