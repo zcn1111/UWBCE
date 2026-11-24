@@ -314,7 +314,7 @@ void anc_diag_report(void);
 void tag_app(void);
 uint8_t tag_diag_is_enabled(void);
 uint8_t tag_diag_get_slot(void);
-void tag_diag_set_enabled(uint8_t enabled, uint8_t slot);
+void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot);
 extern void set_instance(void);
 extern void DW1000_init(void);
 
