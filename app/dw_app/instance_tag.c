@@ -483,6 +483,10 @@ void tag_app(void)
             resp_slot = (single_resp_id < MAX_AHCHOR_NUMBER) ? tag_diag_selected_slot : 0;
             resp_rx_advance = tag_diag_selected_advance;        //全槽扫描也沿用本轮提前量
             resp_rx_retry = tag_diag_selected_retry;
+            /* STA_IDLE 每轮的 set_instance() 会重新注册回调并清除驱动短路径。
+             * 在首个 Resp RX 之前，按本轮配置重新应用，避免 rx_retry=1 但 rx_short=0。 */
+            if (dwt_setsfdfastrecovery(resp_rx_retry) == DWT_ERROR)
+                resp_rx_retry = 0;
             resp_valid = 0;                                     //resp有效校验初始化
             memset(rx_buffer, 0, sizeof(rx_buffer));
             //发送POLL之后，延时开启接收等待resp
