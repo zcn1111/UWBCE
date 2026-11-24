@@ -5,6 +5,7 @@
 #include "instance.h"
 #include "app_glovar.h"
 #include "uwb_gps_transform.h"
+#include "deca_spi.h"
 
 
 /******** 串口句柄变量 ********/
@@ -23,6 +24,7 @@ DbgResult_t Cmd_SetSolutionMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetShowMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetStatMode(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[]);
+DbgResult_t Cmd_UwbSpi(uint8_t Argc, char *Argv[]);
 DbgResult_t Cmd_SetUserdata(uint8_t Argc, char *Argv[]);
 
 
@@ -757,6 +759,19 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		debug_printf("UWBdiagLink pclk_hz=%lu spi_div=%lu spi_hz=%lu\r\n",
 			(unsigned long)pclk_hz, (unsigned long)spi_div, (unsigned long)(pclk_hz / spi_div));
 	}
+	return DBGRET_OK;
+}
+
+DbgResult_t Cmd_UwbSpi(uint8_t Argc, char *Argv[])
+{
+	if (instance_mode != TAG)
+		return DBGRET_ERR_OTHER;
+	if (Argc > 1 || (Argc == 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
+		return DBGRET_ERR_ARG_ILLEGAL;
+	if (Argc == 1 && deca_spi_set_fast(Argv[1][0] == '1') != 0)
+		return DBGRET_ERR_OTHER;
+	debug_printf("UWBdiagSPI fast=%u errors=%lu\r\n", (unsigned)deca_spi_is_fast(),
+		(unsigned long)deca_spi_error_count());
 	return DBGRET_OK;
 }
 

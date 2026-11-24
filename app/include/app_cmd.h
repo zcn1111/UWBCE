@@ -40,6 +40,7 @@ typedef enum
 	X("setshow",	Cmd_SetShowMode)		\
 	X("setstat",	Cmd_SetStatMode)		\
 	X("uwbdiag",	Cmd_UwbDiag)		\
+	X("uwbspi",	Cmd_UwbSpi)		\
 	X("userdata",	Cmd_SetUserdata)
 
 /* 自动生成枚举，CMD_COUNT = 命令总数 */

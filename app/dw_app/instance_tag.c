@@ -1,4 +1,5 @@
 #include "instance.h"
+#include "deca_spi.h"
 
 #if defined(L051_DEV)
 #include "lowpower.h"
@@ -351,7 +352,8 @@ static uint8_t tag_try_sfd_retry(uint8_t slot)
 
     if (!resp_rx_retry || resp_rx_retry_count >= TAG_DIAG_SFD_RETRY_MAX)
         return 0;
-    uint32_t retry_hi = (now_hi + TAG_DIAG_SFD_REARM_UUS * TAG_DIAG_DX_PER_UUS) & ~1UL;
+    uint32_t rearm_delay = deca_spi_is_fast() ? 32U : TAG_DIAG_SFD_REARM_UUS;
+    uint32_t retry_hi = (now_hi + rearm_delay * TAG_DIAG_DX_PER_UUS) & ~1UL;
     int32_t remaining = (int32_t)(resp_window_end_hi - retry_hi);
     /* 恢复后的 RX 起点不晚于原命令使用的正常起点，保留前导码捕获余量。 */
     if ((int32_t)(resp_expected_hi - retry_hi) < (int32_t)(resp_rx_back_uus * TAG_DIAG_DX_PER_UUS)

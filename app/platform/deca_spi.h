@@ -38,6 +38,11 @@ int openspi(void) ;
  */
 int closespi(void) ;
 
+/* 诊断时可切换连续 8 位轮询收发；上电默认使用 HAL。 */
+int deca_spi_set_fast(uint8 enabled);
+uint8 deca_spi_is_fast(void);
+uint32 deca_spi_error_count(void);
+
 
 
 #ifdef __cplusplus
