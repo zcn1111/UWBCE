@@ -665,15 +665,15 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	{
 		return DBGRET_ERR_OTHER;
 	}
-	if (Argc > 4 || (Argc == 4 && instance_mode != TAG)
+	if (Argc > 5 || (Argc >= 4 && instance_mode != TAG)
 		|| (Argc >= 1 && strcmp(Argv[1], "0") != 0 && strcmp(Argv[1], "1") != 0))
 	{
 		return DBGRET_ERR_ARG_ILLEGAL;
 	}
 
-	/* $uwbdiag 1 all <advance_uus>：四槽扫描，基站保持正常应答时序。 */
+	/* $uwbdiag 1 all <advance_uus> [sfd_retry]：四槽扫描，可选槽内 SFD 恢复。 */
 	uint8_t all_slots = Argc >= 2 && strcmp(Argv[2], "all") == 0;
-	if (all_slots && (instance_mode != TAG || Argc != 3 || Argv[1][0] != '1'))
+	if (all_slots && (instance_mode != TAG || (Argc != 3 && Argc != 4) || Argv[1][0] != '1'))
 	{
 		return DBGRET_ERR_ARG_ILLEGAL;
 	}
@@ -691,7 +691,7 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	uint8_t id = params[0];
 	uint8_t slot = Argc >= 3 ? params[1] : id;
 	uint16_t rx_advance = TAG_DIAG_RX_WINDOW_OFF;
-	char *advance_arg = all_slots ? Argv[3] : (Argc == 4 ? Argv[4] : NULL);
+	char *advance_arg = all_slots ? Argv[3] : (Argc >= 4 ? Argv[4] : NULL);
 	if (advance_arg != NULL)
 	{
 		char *end;
@@ -701,6 +701,16 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 			return DBGRET_ERR_ARG_ILLEGAL;
 		}
 		rx_advance = (uint16_t)value;
+	}
+	uint8_t rx_retry = 0;
+	char *retry_arg = all_slots ? (Argc == 4 ? Argv[4] : NULL) : (Argc == 5 ? Argv[5] : NULL);
+	if (retry_arg != NULL)
+	{
+		if (strcmp(retry_arg, "0") != 0 && strcmp(retry_arg, "1") != 0)
+		{
+			return DBGRET_ERR_ARG_ILLEGAL;
+		}
+		rx_retry = retry_arg[0] == '1';
 	}
 	if (instance_mode == ANCHOR)
 	{
@@ -726,6 +736,7 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 		if (rx_advance != TAG_DIAG_RX_WINDOW_OFF)
 		{
 			tag_diag_set_rx_window(rx_advance);
+			tag_diag_set_rx_retry(rx_retry);
 		}
 	}
 
@@ -739,6 +750,7 @@ DbgResult_t Cmd_UwbDiag(uint8_t Argc, char *Argv[])
 	if (rx_advance != TAG_DIAG_RX_WINDOW_OFF)
 	{
 		debug_printf("UWB diag RX advance = %u uus, preamble timeout OFF\r\n", (unsigned)rx_advance);
+		debug_printf("UWB diag SFD retry = %u\r\n", (unsigned)tag_diag_get_rx_retry());
 	}
 	return DBGRET_OK;
 }

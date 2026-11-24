@@ -319,6 +319,8 @@ void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot);
 #define TAG_DIAG_RX_WINDOW_OFF 0xFFFFU
 uint16_t tag_diag_get_rx_advance(void);
 void tag_diag_set_rx_window(uint16_t advance_uus);
+uint8_t tag_diag_get_rx_retry(void);
+void tag_diag_set_rx_retry(uint8_t enabled);
 extern void set_instance(void);
 extern void DW1000_init(void);
 

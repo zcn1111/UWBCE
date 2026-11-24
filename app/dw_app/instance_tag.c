@@ -14,6 +14,12 @@ uint8_t g_CalFlag = 0;
 static uint8_t resp_slot;
 static uint8_t single_resp_id;                         //本轮只接收此基站，MAX_AHCHOR_NUMBER 表示扫描全部
 static uint16_t resp_rx_advance = TAG_DIAG_RX_WINDOW_OFF;
+static uint8_t resp_rx_retry;
+static uint8_t resp_rx_retry_count;
+/* DX_TIME 使用时间戳的 [39:8] 位，单位为 1/256 UUS；有符号差处理计时回卷。 */
+static uint32_t resp_expected_hi;
+static uint32_t resp_window_end_hi;
+static uint32_t resp_rx_back_uus;
 static int tagSleepCorrection_ms = 0;                   //标签时序校准，用于slot分配防冲突管理
 uint32_t volatile next_period_time = 0;                //标签下次测距周期开始时间，用于防冲突管理
 uint8_t Correction_flag = 0;                            //该标签已经被时序校准的标志位
@@ -37,6 +43,9 @@ static uint8_t led_flag = 0;
 static uint32_t led_time = 0;     
 
 #define TAG_DIAG_PERIOD_MS 10000U
+#define TAG_DIAG_DX_PER_UUS (UUS_TO_DWT_TIME >> 8)
+#define TAG_DIAG_SFD_RETRY_MAX 2U
+#define TAG_DIAG_SFD_REARM_UUS 64U
 
 typedef struct
 {
@@ -53,6 +62,17 @@ typedef struct
     uint32_t sfd_timeout;
     uint32_t filter_reject;
     uint32_t lde_error;
+    uint32_t sfd_before_resp;
+    uint32_t sfd_after_resp;
+    uint32_t sfd_rearm;
+    uint32_t sfd_recovered;
+    uint32_t sfd_rearm_late;
+    int32_t sfd_offset_min;
+    int32_t sfd_offset_max;
+    uint32_t resp_time_count;
+    int32_t resp_offset_min;
+    int32_t resp_offset_max;
+    int64_t resp_offset_sum;
 } tag_diag_slot_t;
 
 static struct
@@ -70,6 +90,7 @@ static uint8_t tag_diag_enabled;
 static uint8_t tag_diag_selected_id = MAX_AHCHOR_NUMBER;
 static uint8_t tag_diag_selected_slot = MAX_AHCHOR_NUMBER;
 static uint16_t tag_diag_selected_advance = TAG_DIAG_RX_WINDOW_OFF;
+static uint8_t tag_diag_selected_retry;
 static uint8_t tag_diag_collect;
 static uint32_t tag_diag_started;
 
@@ -95,6 +116,16 @@ void tag_diag_set_rx_window(uint16_t advance_uus)
         ? advance_uus : TAG_DIAG_RX_WINDOW_OFF;
 }
 
+uint8_t tag_diag_get_rx_retry(void)
+{
+    return tag_diag_selected_retry;
+}
+
+void tag_diag_set_rx_retry(uint8_t enabled)
+{
+    tag_diag_selected_retry = tag_diag_enabled && tag_diag_selected_advance != TAG_DIAG_RX_WINDOW_OFF && enabled;
+}
+
 void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot)
 {
     memset(&tag_diag, 0, sizeof(tag_diag));
@@ -105,6 +136,7 @@ void tag_diag_set_enabled(uint8_t enabled, uint8_t id, uint8_t slot)
     tag_diag_selected_id = single_slot ? id : MAX_AHCHOR_NUMBER;
     tag_diag_selected_slot = single_slot ? slot : MAX_AHCHOR_NUMBER;
     tag_diag_selected_advance = TAG_DIAG_RX_WINDOW_OFF;
+    tag_diag_selected_retry = 0;
 }
 
 static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
@@ -130,7 +162,11 @@ static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
         stats->lde_error += (status & SYS_STATUS_LDEERR) != 0;
     }
     else if (valid_resp && (single_resp_id < MAX_AHCHOR_NUMBER || rx_buffer[SENDER_SHORT_ADD_IDX] == slot))
+    {
         stats->resp_ok++;
+        if (resp_rx_retry_count != 0)
+            stats->sfd_recovered++;
+    }
     else
         stats->other_frame++;
 }
@@ -138,16 +174,17 @@ static void tag_diag_record_rx(uint8_t slot, uint8_t valid_resp)
 /* 汇总只在 STA_IDLE 输出，避免串口发送占用当前测距轮的时隙。 */
 static void tag_diag_report(void)
 {
-    char line[256];
+    char line[384];
     unsigned rx_mask = (tag_diag_selected_slot < MAX_AHCHOR_NUMBER)
         ? (1U << tag_diag_selected_slot) : ((1U << MAX_AHCHOR_NUMBER) - 1U);
     int resp_id = (tag_diag_selected_id < MAX_AHCHOR_NUMBER) ? (int)tag_diag_selected_id : -1;
     int rx_advance = tag_diag_selected_advance == TAG_DIAG_RX_WINDOW_OFF ? -1 : (int)tag_diag_selected_advance;
     snprintf(line, sizeof(line),
-        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d\r\n",
+        "UWBdiag poll=%lu poll_tx=%lu final_tx=%lu final_fail=%lu no_resp=%lu rx_abort=%lu rx_mask=0x%02X resp_id=%d rx_adv=%d rx_retry=%u\r\n",
         (unsigned long)tag_diag.polls, (unsigned long)tag_diag.poll_tx_ok,
         (unsigned long)tag_diag.final_tx_ok, (unsigned long)tag_diag.final_tx_fail,
-        (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort, rx_mask, resp_id, rx_advance);
+        (unsigned long)tag_diag.no_resp, (unsigned long)tag_diag.rx_abort, rx_mask, resp_id, rx_advance,
+        (unsigned)tag_diag_selected_retry);
     HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
 
     for (uint8_t i = 0; i < MAX_AHCHOR_NUMBER; i++)
@@ -164,6 +201,23 @@ static void tag_diag_report(void)
             (unsigned long)slot->sfd_timeout, (unsigned long)slot->filter_reject,
             (unsigned long)slot->lde_error);
         HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
+        if (tag_diag_selected_advance != TAG_DIAG_RX_WINDOW_OFF)
+        {
+            int32_t resp_average = slot->resp_time_count
+                ? (int32_t)(slot->resp_offset_sum / slot->resp_time_count / TAG_DIAG_DX_PER_UUS) : 0;
+            snprintf(line, sizeof(line),
+                "UWBdiagRX slot=%u n=%lu sfd_pre=%lu sfd_post=%lu rearm=%lu recovered=%lu rearm_late=%lu"
+                " sfd_off_uus=%ld/%ld resp_off_uus=%ld/%ld/%ld\r\n",
+                (unsigned)i, (unsigned long)slot->resp_time_count,
+                (unsigned long)slot->sfd_before_resp, (unsigned long)slot->sfd_after_resp,
+                (unsigned long)slot->sfd_rearm, (unsigned long)slot->sfd_recovered,
+                (unsigned long)slot->sfd_rearm_late,
+                (long)(slot->sfd_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS),
+                (long)(slot->sfd_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS),
+                (long)(slot->resp_offset_min / (int32_t)TAG_DIAG_DX_PER_UUS), (long)resp_average,
+                (long)(slot->resp_offset_max / (int32_t)TAG_DIAG_DX_PER_UUS));
+            HAL_UART_Transmit(&UART_PORT, (uint8_t *)line, (uint16_t)strlen(line), 50);
+        }
     }
 
     memset(&tag_diag, 0, sizeof(tag_diag));
@@ -173,19 +227,92 @@ static void tag_diag_report(void)
 static int tag_start_resp_rx(uint8_t slot)
 {
     uint32_t first_resp_delay = FIRST_RESP_SEND_6P8M;
+    resp_rx_back_uus = ANC_RESP_SEND_BACK_6P8M;
     if (inst_dataRate == DWT_BR_110K)
+    {
         first_resp_delay = FIRST_RESP_SEND_110K;
+        resp_rx_back_uus = ANC_RESP_SEND_BACK_110K;
+    }
     else if (inst_dataRate == DWT_BR_850K)
+    {
         first_resp_delay = FIRST_RESP_SEND_850K;
+        resp_rx_back_uus = ANC_RESP_SEND_BACK_850K;
+    }
 
+    uint32_t normal_delay = first_resp_delay + slot * inst_data_interval;
+    resp_expected_hi = (uint32_t)((poll_tx_ts + (normal_delay + resp_rx_back_uus) * (uint64_t)UUS_TO_DWT_TIME) >> 8);
+    resp_window_end_hi = (uint32_t)((poll_tx_ts + (normal_delay + inst_resp_rx_timeout) * (uint64_t)UUS_TO_DWT_TIME) >> 8);
+    resp_rx_retry_count = 0;
     uint32_t advance = resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF ? 0U : resp_rx_advance;
-    uint64_t delay = (first_resp_delay + slot * inst_data_interval - advance) * (uint64_t)UUS_TO_DWT_TIME;
+    uint64_t delay = (normal_delay - advance) * (uint64_t)UUS_TO_DWT_TIME;
     dwt_setdelayedtrxtime((uint32_t)((poll_tx_ts + delay) >> 8));
     rx_status = RX_WAIT;
     int ret = dwt_rxenable(DWT_START_RX_DELAYED | DWT_IDLE_ON_DLY_ERR);
     if (tag_diag_collect && ret == DWT_ERROR)
         tag_diag.slots[slot].rx_late++;
     return ret;
+}
+
+static void tag_diag_record_resp_time(uint8_t slot, uint64_t timestamp)
+{
+    if (!tag_diag_collect || resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF)
+        return;
+    tag_diag_slot_t *stats = &tag_diag.slots[slot];
+    int32_t offset = (int32_t)((uint32_t)(timestamp >> 8) - resp_expected_hi);
+    if (stats->resp_time_count == 0 || offset < stats->resp_offset_min)
+        stats->resp_offset_min = offset;
+    if (stats->resp_time_count == 0 || offset > stats->resp_offset_max)
+        stats->resp_offset_max = offset;
+    stats->resp_offset_sum += offset;
+    stats->resp_time_count++;
+}
+
+/* 驱动已在 RX 错误中断中关闭并复位接收机。这里只恢复足够早的纯 SFD 超时，
+ * 最多两次；重新预约 RX 起点并按原绝对截止时刻计算超时，防止占用下一槽。 */
+static uint8_t tag_try_sfd_retry(uint8_t slot)
+{
+    uint32_t status = rx_event_status;
+    if (!tag_diag_collect || resp_rx_advance == TAG_DIAG_RX_WINDOW_OFF || rx_status != RX_ERROR
+        || (status & (SYS_STATUS_ALL_RX_ERR | SYS_STATUS_ALL_RX_TO)) != SYS_STATUS_RXSFDTO)
+        return 0;
+
+    tag_diag_slot_t *stats = &tag_diag.slots[slot];
+    uint32_t now_hi = dwt_readsystimestamphi32();
+    /* 这是主循环处理错误时的时刻，包含中断处理延迟，不是硬件错误时间戳。 */
+    int32_t offset = (int32_t)(now_hi - resp_expected_hi);
+    if (stats->sfd_before_resp + stats->sfd_after_resp == 0 || offset < stats->sfd_offset_min)
+        stats->sfd_offset_min = offset;
+    if (stats->sfd_before_resp + stats->sfd_after_resp == 0 || offset > stats->sfd_offset_max)
+        stats->sfd_offset_max = offset;
+    if (offset < 0)
+        stats->sfd_before_resp++;
+    else
+        stats->sfd_after_resp++;
+
+    if (!resp_rx_retry || resp_rx_retry_count >= TAG_DIAG_SFD_RETRY_MAX)
+        return 0;
+    uint32_t retry_hi = (now_hi + TAG_DIAG_SFD_REARM_UUS * TAG_DIAG_DX_PER_UUS) & ~1UL;
+    int32_t remaining = (int32_t)(resp_window_end_hi - retry_hi);
+    /* 恢复后的 RX 起点不晚于原命令使用的正常起点，保留前导码捕获余量。 */
+    if ((int32_t)(resp_expected_hi - retry_hi) < (int32_t)(resp_rx_back_uus * TAG_DIAG_DX_PER_UUS)
+        || remaining < (int32_t)TAG_DIAG_DX_PER_UUS)
+        return 0;
+
+    dwt_setrxtimeout((uint16_t)((uint32_t)remaining / TAG_DIAG_DX_PER_UUS));
+    dwt_setdelayedtrxtime(retry_hi);
+    rx_status = RX_WAIT;
+    rx_frame_len = 0;
+    rx_event_status = 0;
+    if (dwt_rxenable(DWT_START_RX_DELAYED | DWT_IDLE_ON_DLY_ERR) == DWT_SUCCESS)
+    {
+        resp_rx_retry_count++;
+        stats->sfd_rearm++;
+        return 1;
+    }
+    stats->sfd_rearm_late++;
+    rx_event_status = status;
+    rx_status = RX_ERROR;
+    return 0;
 }
 
 void tag_app(void)
@@ -280,6 +407,7 @@ void tag_app(void)
             single_resp_id = tag_diag_selected_id;             //整轮沿用 Poll 发出后的基站和槽选择
             resp_slot = (single_resp_id < MAX_AHCHOR_NUMBER) ? tag_diag_selected_slot : 0;
             resp_rx_advance = tag_diag_selected_advance;        //全槽扫描也沿用本轮提前量
+            resp_rx_retry = tag_diag_selected_retry;
             resp_valid = 0;                                     //resp有效校验初始化
             memset(rx_buffer, 0, sizeof(rx_buffer));
             //发送POLL之后，延时开启接收等待resp
@@ -349,6 +477,11 @@ void tag_app(void)
                 rx_buffer[SENDER_SHORT_ADD_IDX] < MAX_AHCHOR_NUMBER &&
                 (single_resp_id == MAX_AHCHOR_NUMBER || rx_buffer[SENDER_SHORT_ADD_IDX] == single_resp_id);
 
+            if (tag_try_sfd_retry(resp_slot))
+            {
+                state = STA_WAIT_RESP;
+                break;
+            }
             if (tag_diag_collect)
                 tag_diag_record_rx(resp_slot, valid_resp);
 
@@ -371,6 +504,8 @@ void tag_app(void)
                 {
                     resp_valid |= resp_bit;
                     resp_rx_ts[recv_anc_id] = get_rx_timestamp_u64();
+                    if (single_resp_id < MAX_AHCHOR_NUMBER || recv_anc_id == resp_slot)
+                        tag_diag_record_resp_time(resp_slot, resp_rx_ts[recv_anc_id]);
 
                     /* Resp 携带的是基站上一轮的距离。 */
                     uint32_t distance = ((uint32_t)rx_buffer[RESP_MSG_PREV_DIS_IDX] << 24) |
